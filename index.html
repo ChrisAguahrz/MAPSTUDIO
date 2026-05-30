@@ -16,6 +16,8 @@
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
         .gradient-track-bar { position: relative; height: 28px; border-radius: 6px; cursor: crosshair; }
         .gradient-node-pin { position: absolute; top: -3px; width: 14px; height: 34px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 6px rgba(0,0,0,0.6); transform: translateX(-50%); cursor: pointer; }
+        .resize-handle { cursor: nwse-resize; fill: #fbbf24; stroke: #0f172a; stroke-width: 1.5px; }
+        .selected-asset-border { stroke: #fbbf24; stroke-width: 2px; stroke-dasharray: 4; fill: none; }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 h-screen flex flex-col md:flex-row overflow-hidden select-none">
@@ -91,8 +93,7 @@
                         <span>Min (Low/Decreasing Intensity)</span>
                         <span>Max (High/Solid Base Color)</span>
                     </div>
-                    <div id="gradientTrackBar" class="gradient-track-bar bg-gradient-to-r from-slate-100 to-amber-500 border border-slate-700">
-                        </div>
+                    <div id="gradientTrackBar" class="gradient-track-bar bg-gradient-to-r from-slate-100 to-amber-500 border border-slate-700"></div>
                     <div class="flex gap-2 items-center">
                         <label class="text-[10px] text-slate-400">Selected Node Color:</label>
                         <input type="color" id="nodeColorPicker" value="#f59e0b" class="bg-transparent border-0 cursor-pointer w-6 h-6">
@@ -190,9 +191,13 @@
                     <label class="block text-[10px] text-slate-400 mb-0.5">Border Weight</label>
                     <input type="range" id="borderStrokeSlider" min="0" max="4" step="0.1" value="0.4" class="w-full accent-amber-500 bg-slate-950 h-1 rounded">
                 </div>
-                <div class="col-span-2 flex items-center">
+                <div>
+                    <label class="block text-[10px] text-slate-400 mb-0.5">Map Layout Scale</label>
+                    <input type="range" id="mapScaleSlider" min="0.2" max="3" step="0.05" value="1.0" class="w-full accent-amber-500 bg-slate-950 h-1 rounded">
+                </div>
+                <div class="flex items-center">
                     <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer mt-2">
-                        <input type="checkbox" id="enableShadows" class="rounded border-slate-700 bg-slate-950 text-amber-500"> Apply Polygon Drop Shadow
+                        <input type="checkbox" id="enableShadows" class="rounded border-slate-700 bg-slate-950 text-amber-500"> Apply Shadow
                     </label>
                 </div>
             </div>
@@ -202,7 +207,6 @@
     </aside>
 
     <main class="flex-1 flex flex-col h-[50vh] md:h-full relative bg-slate-950 p-4 overflow-hidden gap-4">
-        
         <div id="canvasContainer" class="flex-1 bg-white rounded-xl overflow-hidden flex items-center justify-center relative shadow-2xl border border-slate-800">
             <svg id="mapCanvas" class="w-full h-full text-slate-900 select-none"></svg>
             
@@ -215,7 +219,6 @@
         <div class="h-44 bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2 shadow-2xl">
             <div class="flex justify-between items-center border-b border-slate-800 pb-1.5">
                 <h3 class="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">📋 Data Validation Ledger & Custom Resolution Hub</h3>
-                <p class="text-[10px] text-slate-400 italic">Red records could not be mapped automatically. Click a name to manual-route its location vector.</p>
             </div>
             <div class="flex-1 overflow-auto">
                 <table class="w-full text-left border-collapse text-xs">
@@ -257,39 +260,19 @@
 
     <script>
         let state = {
-            clipboardText: "",
-            selectedProp: 'CLIPBOARD_DATA',
-            labelProp: 'col_0', 
-            customStops: [],
-            executionMode: 'gradient',
-            numberFormat: 'raw',
-            gradientStyle: 'amber',
-            reverseColors: false,
-            enableShadows: false,
-            borderStroke: 0.4,
-            showLabels: true,
-            preventOverlap: true,
-            labelSize: 9,
-            labelColor: '#1e293b',
-            labelFont: "'Inter', sans-serif",
-            titleText: "Global Operations Matrix",
+            clipboardText: "", selectedProp: 'name', labelProp: 'col_0', customStops: [],
+            executionMode: 'gradient', numberFormat: 'raw', gradientStyle: 'amber',
+            reverseColors: false, enableShadows: false, borderStroke: 0.4, mapScale: 1.0,
+            showLabels: true, preventOverlap: true, labelSize: 9, labelColor: '#1e293b',
+            labelFont: "'Inter', sans-serif", titleText: "Global Operations Matrix",
             subtitleText: "Statistical distribution mapping suite index",
-            pastedRows: [], 
-            pastedHeaders: [],
-            boundaryTextures: {}, 
-            selectedFeatureId: null,
-            partyAColor: '#1d4ed8',
-            partyBColor: '#b91c1c',
-            customGradientNodes: [
-                { offset: 0, color: "#f8fafc" }, // Min point high intensity drop off
-                { offset: 100, color: "#f59e0b" } // Max solid color anchor point
-            ],
-            selectedNodeIndex: 1,
-            floatingImagesList: [] // Tracking array for deletion architecture
+            pastedRows: [], pastedHeaders: [], boundaryTextures: {}, selectedFeatureId: null,
+            partyAColor: '#1d4ed8', partyBColor: '#b91c1c', selectedAssetId: null,
+            customGradientNodes: [{ offset: 0, color: "#f1f5f9" }, { offset: 100, color: "#f59e0b" }],
+            selectedNodeIndex: 1, floatingImagesList: []
         };
 
         let runtimeGeoJsonMemory = null;
-
         const colorRamps = {
             amber: ["#fffbeb", "#fde68a", "#fbbf24", "#d97706", "#78350f", "#3b1300"],
             classicBlue: ["#eff6ff", "#bfdbfe", "#60a5fa", "#2563eb", "#1e3a8a", "#030712"],
@@ -299,8 +282,6 @@
 
         const svg = d3.select("#mapCanvas");
         const defs = svg.append("defs").attr("id", "mapTexturesDefsHub");
-        
-        // MASTER WORKSPACE ELEMENT CONTAINER
         const g = svg.append("g").attr("id", "masterCanvasGroup");
         const geometryGroup = g.append("g").attr("id", "mapGeometrySubgroup");
         const interfaceGroup = g.append("g").attr("id", "mapInterfaceSubgroup");
@@ -313,6 +294,7 @@
         const propertySelect = document.getElementById('propertySelect');
         const labelPropertySelect = document.getElementById('labelPropertySelect');
         const borderStrokeSlider = document.getElementById('borderStrokeSlider');
+        const mapScaleSlider = document.getElementById('mapScaleSlider');
         const gradientStyleSelect = document.getElementById('gradientStyleSelect');
         const numberFormatSelect = document.getElementById('numberFormatSelect');
         const reverseColors = document.getElementById('reverseColors');
@@ -330,9 +312,7 @@
         function formatMetricDisplay(val, mask) {
             if (isNaN(val)) return "0";
             switch(mask) {
-                case 'k':
-                    if (Math.abs(val) >= 1000) return (val / 1000).toFixed(1) + 'k';
-                    return val.toFixed(0) + 'k';
+                case 'k': return Math.abs(val) >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toFixed(0) + 'k';
                 case 'dec1': return val.toFixed(1);
                 case 'dec2': return val.toFixed(2);
                 case 'dec3': return val.toFixed(3);
@@ -340,29 +320,18 @@
             }
         }
 
-        // PERMANENT STORAGE REHYDRATION WITH RAW TOPOLOGY PRESERVATION
         function saveStateToLocalStorage() {
             try {
-                localStorage.setItem('MAP_STUDIO_PROJECT_DATA_V6', JSON.stringify(state));
-                if (runtimeGeoJsonMemory) {
-                    localStorage.setItem('MAP_STUDIO_GEOJSON_CACHE_V6', JSON.stringify(runtimeGeoJsonMemory));
-                }
+                localStorage.setItem('MAP_STUDIO_PROJECT_DATA_V7', JSON.stringify(state));
+                if (runtimeGeoJsonMemory) localStorage.setItem('MAP_STUDIO_GEOJSON_CACHE_V7', JSON.stringify(runtimeGeoJsonMemory));
                 document.getElementById('saveStatus').textContent = "Saved";
-            } catch(e) {
-                document.getElementById('saveStatus').textContent = "Cache Full";
-            }
+            } catch(e) { document.getElementById('saveStatus').textContent = "Cache Full"; }
         }
 
         function loadStateFromLocalStorage() {
-            const cached = localStorage.getItem('MAP_STUDIO_PROJECT_DATA_V6');
-            const cachedGeo = localStorage.getItem('MAP_STUDIO_GEOJSON_CACHE_V6');
-            
-            if (cachedGeo) {
-                try {
-                    runtimeGeoJsonMemory = JSON.parse(cachedGeo);
-                } catch(e) { runtimeGeoJsonMemory = null; }
-            }
-
+            const cached = localStorage.getItem('MAP_STUDIO_PROJECT_DATA_V7');
+            const cachedGeo = localStorage.getItem('MAP_STUDIO_GEOJSON_CACHE_V7');
+            if (cachedGeo) { try { runtimeGeoJsonMemory = JSON.parse(cachedGeo); } catch(e) { runtimeGeoJsonMemory = null; } }
             if (!cached) return;
             try {
                 Object.assign(state, JSON.parse(cached));
@@ -372,6 +341,7 @@
                 reverseColors.checked = state.reverseColors;
                 enableShadows.checked = state.enableShadows;
                 borderStrokeSlider.value = state.borderStroke;
+                mapScaleSlider.value = state.mapScale || 1.0;
                 document.getElementById('titleInput').value = state.titleText;
                 document.getElementById('subtitleInput').value = state.subtitleText;
                 document.getElementById('partyAColor').value = state.partyAColor;
@@ -397,17 +367,39 @@
                     propertySelect.disabled = false;
                     propertySelect.value = state.selectedProp;
                 }
-
-                if(state.executionMode === 'election') {
-                    document.getElementById('modeElectionBtn').click();
-                }
+                if(state.executionMode === 'election') document.getElementById('modeElectionBtn').click();
             } catch(e) {}
         }
 
+        async function loadDefaultMapOnLaunch() {
+            if (runtimeGeoJsonMemory) return;
+            try {
+                const response = await fetch("(A) ORLAND STATES .json");
+                if (!response.ok) throw new Error("Default server file tracking missing");
+                runtimeGeoJsonMemory = await response.json();
+                runtimeGeoJsonMemory.features = runtimeGeoJsonMemory.features.filter(f => f && f.geometry);
+                const testFeatureProps = Object.keys(runtimeGeoJsonMemory.features[0].properties);
+                propertySelect.innerHTML = '';
+                testFeatureProps.forEach(k => {
+                    let opt = document.createElement('option'); opt.value = k; opt.textContent = k;
+                    propertySelect.appendChild(opt);
+                });
+                propertySelect.disabled = false;
+                const smartKeys = ['name', 'Name', 'id', 'ID', 'iso_a3', 'state'];
+                let autoMatchKey = testFeatureProps.find(key => smartKeys.includes(key)) || testFeatureProps[0];
+                propertySelect.value = autoMatchKey;
+                state.selectedProp = autoMatchKey;
+                if(state.clipboardText) runClipboardDataCompilation();
+                updateMapCanvasDisplay();
+                saveStateToLocalStorage();
+            } catch (err) { console.log("Auto-load skipped:", err.message); }
+        }
+
         loadStateFromLocalStorage();
+        loadDefaultMapOnLaunch();
 
         const syncInputsList = [
-            borderStrokeSlider, gradientStyleSelect, numberFormatSelect, reverseColors, enableShadows,
+            borderStrokeSlider, mapScaleSlider, gradientStyleSelect, numberFormatSelect, reverseColors, enableShadows,
             document.getElementById('partyAColor'), document.getElementById('partyBColor'),
             document.getElementById('titleInput'), document.getElementById('subtitleInput'),
             document.getElementById('showLabelsToggle'), document.getElementById('preventOverlapToggle'),
@@ -418,6 +410,7 @@
         syncInputsList.forEach(input => {
             input.addEventListener('input', () => {
                 state.borderStroke = parseFloat(borderStrokeSlider.value);
+                state.mapScale = parseFloat(mapScaleSlider.value);
                 state.gradientStyle = gradientStyleSelect.value;
                 state.numberFormat = numberFormatSelect.value;
                 state.reverseColors = reverseColors.checked;
@@ -447,7 +440,6 @@
             }
         }
 
-        // DECREASING INTENSITY ENGINE CONTROLLER
         function renderGradientTrackRailPins() {
             gradientTrackBar.innerHTML = '';
             state.customGradientNodes.sort((a,b) => a.offset - b.offset);
@@ -463,7 +455,6 @@
                     pin.style.borderColor = "#fbbf24";
                     nodeColorPicker.value = node.color;
                 }
-
                 pin.addEventListener('click', (e) => {
                     e.stopPropagation();
                     state.selectedNodeIndex = index;
@@ -477,33 +468,21 @@
         gradientTrackBar.addEventListener('click', function(e) {
             let rect = this.getBoundingClientRect();
             let clickedOffset = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-            if(clickedOffset < 0) clickedOffset = 0;
-            if(clickedOffset > 100) clickedOffset = 100;
-
+            clickedOffset = Math.max(0, Math.min(100, clickedOffset));
             let baseColor = nodeColorPicker.value;
-            let newNode = { offset: clickedOffset, color: baseColor };
-            state.customGradientNodes.push(newNode);
+            state.customGradientNodes.push({ offset: clickedOffset, color: baseColor });
             state.selectedNodeIndex = state.customGradientNodes.length - 1;
-            
-            renderGradientTrackRailPins();
-            updateMapCanvasDisplay();
-            saveStateToLocalStorage();
+            renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
         });
 
         nodeColorPicker.addEventListener('input', () => {
             if(state.selectedNodeIndex !== null && state.customGradientNodes[state.selectedNodeIndex]) {
                 let pickedColor = nodeColorPicker.value;
                 state.customGradientNodes[state.selectedNodeIndex].color = pickedColor;
-                
-                // If modifying the highest range stop, recalculate the lowest stop to guarantee high contrast
                 if (state.selectedNodeIndex === state.customGradientNodes.length - 1) {
-                    let backgroundContrastIntensity = d3.interpolateLab("#f8fafc", pickedColor)(0.08);
-                    state.customGradientNodes[0].color = backgroundContrastIntensity;
+                    state.customGradientNodes[0].color = d3.interpolateLab("#f8fafc", pickedColor)(0.06);
                 }
-                
-                renderGradientTrackRailPins();
-                updateMapCanvasDisplay();
-                saveStateToLocalStorage();
+                renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
             }
         });
 
@@ -511,12 +490,9 @@
             if(state.customGradientNodes.length <= 2) return;
             state.customGradientNodes.splice(state.selectedNodeIndex, 1);
             state.selectedNodeIndex = 0;
-            renderGradientTrackRailPins();
-            updateMapCanvasDisplay();
-            saveStateToLocalStorage();
+            renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
         });
 
-        // VIEW RENDERING PROFILES INTERACTION RULES
         document.getElementById('modeGradientBtn').addEventListener('click', function() {
             state.executionMode = 'gradient';
             this.className = "bg-amber-600 text-white text-xs font-bold py-1 px-2 rounded";
@@ -524,8 +500,7 @@
             document.getElementById('gradientSubpanel').classList.remove('hidden');
             document.getElementById('electionSubpanel').classList.add('hidden');
             document.getElementById('customBreaksConfigBlock').classList.remove('hidden');
-            saveStateToLocalStorage();
-            updateMapCanvasDisplay();
+            saveStateToLocalStorage(); updateMapCanvasDisplay();
         });
 
         document.getElementById('modeElectionBtn').addEventListener('click', function() {
@@ -535,11 +510,9 @@
             document.getElementById('gradientSubpanel').classList.add('hidden');
             document.getElementById('electionSubpanel').classList.remove('hidden');
             document.getElementById('customBreaksConfigBlock').classList.add('hidden');
-            saveStateToLocalStorage();
-            updateMapCanvasDisplay();
+            saveStateToLocalStorage(); updateMapCanvasDisplay();
         });
 
-        // LOAD GEOJSON MAP DEFINITIONS
         geoFileInput.addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -548,24 +521,19 @@
                 try {
                     runtimeGeoJsonMemory = JSON.parse(evt.target.result);
                     runtimeGeoJsonMemory.features = runtimeGeoJsonMemory.features.filter(f => f && f.geometry);
-                    
                     const testFeatureProps = Object.keys(runtimeGeoJsonMemory.features[0].properties);
                     propertySelect.innerHTML = '';
                     testFeatureProps.forEach(k => {
                         let opt = document.createElement('option'); opt.value = k; opt.textContent = k;
                         propertySelect.appendChild(opt);
                     });
-
                     propertySelect.disabled = false;
-                    const smartKeys = ['name', 'Name', 'id', 'ID', 'iso_a3', 'state'];
-                    let autoMatchKey = testFeatureProps.find(key => smartKeys.includes(key)) || testFeatureProps[0];
+                    let autoMatchKey = testFeatureProps.find(key => ['name', 'Name', 'id', 'ID', 'state'].includes(key)) || testFeatureProps[0];
                     propertySelect.value = autoMatchKey;
                     state.selectedProp = autoMatchKey;
-
                     if(state.clipboardText) runClipboardDataCompilation();
-                    updateMapCanvasDisplay();
-                    saveStateToLocalStorage();
-                } catch(err) { alert("Invalid GeoJSON map geometry topology structures."); }
+                    updateMapCanvasDisplay(); saveStateToLocalStorage();
+                } catch(err) { alert("Invalid GeoJSON geometry topology."); }
             };
             r.readAsText(file);
         });
@@ -573,74 +541,49 @@
         propertySelect.addEventListener('change', (e) => { state.selectedProp = e.target.value; updateMapCanvasDisplay(); saveStateToLocalStorage(); });
         labelPropertySelect.addEventListener('change', (e) => { state.labelProp = e.target.value; saveStateToLocalStorage(); updateMapCanvasDisplay(); });
 
-        // PARSE PASTED CLIPBOARD DATA ROW ELEMENTS & COLUMN HEADERS
-        document.getElementById('processClipboardBtn').addEventListener('click', () => {
-            state.clipboardText = csvPasteInput.value;
-            runClipboardDataCompilation();
-        });
-
         function extractFeatureIdentityToken(feature) {
             const props = feature.properties;
-            const scanChain = [state.selectedProp, 'name', 'Name', 'id', 'ID', 'iso_a3'];
+            const scanChain = [state.selectedProp, 'name', 'Name', 'id', 'ID'];
             for(let token of scanChain) {
-                if(props[token] !== undefined && props[token] !== null) {
-                    return props[token].toString().trim();
-                }
+                if(props[token] !== undefined && props[token] !== null) return props[token].toString().trim();
             }
             return "";
         }
 
         function runClipboardDataCompilation() {
             if(!state.clipboardText) return;
-
-            let records = [];
             const rows = state.clipboardText.split("\n").map(r => r.trim()).filter(r => r.length > 0);
             if(rows.length === 0) return;
 
             let firstRowTokens = rows[0].split(/\t|,|;/);
-            let columnCount = firstRowTokens.length;
-            
             state.pastedHeaders = [];
-            for(let i=0; i < columnCount; i++) {
-                let cleanHeaderName = firstRowTokens[i].replace(/["']/g, "").trim();
-                state.pastedHeaders.push({ key: `col_${i}`, label: cleanHeaderName || `Column ${i+1}` });
-            }
+            firstRowTokens.forEach((tok, i) => {
+                state.pastedHeaders.push({ key: `col_${i}`, label: tok.replace(/["']/g, "").trim() || `Column ${i+1}` });
+            });
 
             labelPropertySelect.innerHTML = '';
             state.pastedHeaders.forEach(h => {
-                let opt = document.createElement('option');
-                opt.value = h.key; opt.textContent = h.label;
+                let opt = document.createElement('option'); opt.value = h.key; opt.textContent = h.label;
                 labelPropertySelect.appendChild(opt);
             });
             labelPropertySelect.disabled = false;
-            
-            if(state.pastedHeaders[2]) {
-                state.labelProp = state.pastedHeaders[2].key;
-            } else {
-                state.labelProp = state.pastedHeaders[0].key;
-            }
+            state.labelProp = state.pastedHeaders[2] ? state.pastedHeaders[2].key : state.pastedHeaders[0].key;
             labelPropertySelect.value = state.labelProp;
 
-            rows.forEach((row, rowIndex) => {
+            let records = [];
+            rows.forEach(row => {
                 let tokens = row.split(/\t|,|;/).map(t => t.trim().replace(/["']/g, ""));
                 let rowObject = {};
-                state.pastedHeaders.forEach((h, colIndex) => {
-                    rowObject[h.key] = tokens[colIndex] || "";
-                });
-
-                let rawLocationStr = tokens[0] || "";
-                let numericValue = parseFloat(tokens[1]) || 0;
-
+                state.pastedHeaders.forEach((h, colIndex) => { rowObject[h.key] = tokens[colIndex] || ""; });
                 records.push({
-                    rawLabel: rawLocationStr,
-                    value: numericValue,
+                    rawLabel: tokens[0] || "",
+                    value: parseFloat(tokens[1]) || 0,
                     mappedFeatureId: null,
                     cellsDataMap: rowObject
                 });
             });
 
             state.pastedRows = records;
-
             if(runtimeGeoJsonMemory) {
                 state.pastedRows.forEach(record => {
                     let lowerSearchLabel = record.rawLabel.toLowerCase();
@@ -648,15 +591,10 @@
                         let idToken = extractFeatureIdentityToken(f).toLowerCase();
                         return idToken === lowerSearchLabel || idToken.replace(/[^a-z0-9]/g, "") === lowerSearchLabel.replace(/[^a-z0-9]/g, "");
                     });
-                    if(matchedFeature) {
-                        record.mappedFeatureId = matchedFeature.id || extractFeatureIdentityToken(matchedFeature);
-                    }
+                    if(matchedFeature) record.mappedFeatureId = matchedFeature.id || extractFeatureIdentityToken(matchedFeature);
                 });
             }
-
-            synchronizeLedgerCorrectionInterface();
-            saveStateToLocalStorage();
-            updateMapCanvasDisplay();
+            synchronizeLedgerCorrectionInterface(); saveStateToLocalStorage(); updateMapCanvasDisplay();
         }
 
         function synchronizeLedgerCorrectionInterface() {
@@ -665,23 +603,16 @@
                 ledgerTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic">No spreadsheet columns imported yet.</td></tr>`;
                 return;
             }
-
             state.pastedRows.forEach((row, index) => {
                 let tr = document.createElement('tr');
                 let isAligned = row.mappedFeatureId !== null;
                 tr.className = isAligned ? "border-b border-slate-800 hover:bg-slate-800/20 text-slate-300" : "bg-rose-950/30 text-rose-300 border-b border-rose-900/40";
-                
-                let displayStringValue = row.cellsDataMap[state.labelProp] || row.value;
-
                 tr.innerHTML = `
                     <td class="p-1 font-bold">${row.rawLabel}</td>
                     <td class="p-1 italic text-slate-400">${isAligned ? row.mappedFeatureId : '⚠️ UNMAPPED'}</td>
-                    <td class="p-1 font-mono text-amber-400">${displayStringValue}</td>
-                    <td class="p-1 text-right">
-                        <button class="bg-slate-800 hover:bg-amber-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Route Anchor</button>
-                    </td>
+                    <td class="p-1 font-mono text-amber-400">${row.cellsDataMap[state.labelProp] || row.value}</td>
+                    <td class="p-1 text-right"><button class="bg-slate-800 hover:bg-amber-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Route</button></td>
                 `;
-
                 tr.querySelector('button').addEventListener('click', () => openManualAlignmentWizard(index));
                 ledgerTableBody.appendChild(tr);
             });
@@ -690,93 +621,62 @@
         let activeRemapIndex = null;
         function openManualAlignmentWizard(rowIndex) {
             activeRemapIndex = rowIndex;
-            const targetRow = state.pastedRows[rowIndex];
-            document.getElementById('modalTargetLabel').textContent = targetRow.rawLabel;
+            document.getElementById('modalTargetLabel').textContent = state.pastedRows[rowIndex].rawLabel;
             document.getElementById('remappingModal').classList.remove('hidden');
             renderWizardTargetRegistry("");
         }
 
-        document.getElementById('modalSearchInput').addEventListener('input', (e) => {
-            renderWizardTargetRegistry(e.target.value.toLowerCase());
-        });
+        document.getElementById('modalSearchInput').addEventListener('input', (e) => renderWizardTargetRegistry(e.target.value.toLowerCase()));
 
         function renderWizardTargetRegistry(filterText) {
-            const container = document.getElementById('modalListContainer');
-            container.innerHTML = '';
+            const container = document.getElementById('modalListContainer'); container.innerHTML = '';
             if(!runtimeGeoJsonMemory) return;
-
             runtimeGeoJsonMemory.features.forEach(f => {
                 let identity = extractFeatureIdentityToken(f);
                 if(filterText && !identity.toLowerCase().includes(filterText)) return;
-
                 let div = document.createElement('div');
                 div.className = "p-1.5 hover:bg-amber-600 hover:text-white cursor-pointer transition flex justify-between";
-                div.innerHTML = `<span>${identity}</span> <span class="text-[9px] opacity-60">Apply Vector</span>`;
-                
+                div.innerHTML = `<span>${identity}</span>`;
                 div.addEventListener('click', () => {
                     state.pastedRows[activeRemapIndex].mappedFeatureId = f.id || identity;
                     document.getElementById('remappingModal').classList.add('hidden');
-                    synchronizeLedgerCorrectionInterface();
-                    updateMapCanvasDisplay();
-                    saveStateToLocalStorage();
+                    synchronizeLedgerCorrectionInterface(); updateMapCanvasDisplay(); saveStateToLocalStorage();
                 });
                 container.appendChild(div);
             });
         }
 
-        document.getElementById('closeModalBtn').addEventListener('click', () => {
-            document.getElementById('remappingModal').classList.add('hidden');
-        });
+        document.getElementById('closeModalBtn').addEventListener('click', () => document.getElementById('remappingModal').classList.add('hidden'));
 
-        // THRESHOLD INTERVAL CHIPS ENGINE
         document.getElementById('submitBreakBtn').addEventListener('click', () => {
             const input = document.getElementById('newBreakValueInput');
             const parsedVal = parseFloat(input.value);
             if(!isNaN(parsedVal)) {
-                state.customStops.push(parsedVal);
-                state.customStops.sort((a,b)=>a-b);
-                input.value = '';
-                syncBreakChipsContainer();
-                updateMapCanvasDisplay();
-                saveStateToLocalStorage();
+                state.customStops.push(parsedVal); state.customStops.sort((a,b)=>a-b);
+                input.value = ''; syncBreakChipsContainer(); updateMapCanvasDisplay(); saveStateToLocalStorage();
             }
         });
 
         function syncBreakChipsContainer() {
-            const container = document.getElementById('valueBreaksContainer');
-            container.innerHTML = '';
+            const container = document.getElementById('valueBreaksContainer'); container.innerHTML = '';
             state.customStops.forEach((st, idx) => {
                 let chip = document.createElement('span');
                 chip.className = "bg-slate-800 border border-slate-700 text-amber-400 font-mono text-[10px] px-2 py-0.5 rounded flex items-center gap-1";
-                chip.innerHTML = `${st} <button class="text-rose-500 hover:text-rose-400 font-bold ml-1">×</button>`;
+                chip.innerHTML = `${st} <button class="text-rose-500 font-bold ml-1">×</button>`;
                 chip.querySelector('button').addEventListener('click', () => {
-                    state.customStops.splice(idx, 1);
-                    syncBreakChipsContainer();
-                    updateMapCanvasDisplay();
-                    saveStateToLocalStorage();
+                    state.customStops.splice(idx, 1); syncBreakChipsContainer(); updateMapCanvasDisplay(); saveStateToLocalStorage();
                 });
                 container.appendChild(chip);
             });
         }
 
-        // FLOATING GRAPHICS STORAGE AND DOCK DELETION RE-ENGINEERING
         floatingImageInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+            const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onload = function(evt) {
                 let imgId = "img-" + Date.now();
-                let assetRecord = {
-                    id: imgId,
-                    src: evt.target.result,
-                    name: file.name,
-                    x: 250, y: 200, w: 130, h: 130
-                };
-                state.floatingImagesList.push(assetRecord);
-                
-                syncFloatingImageAssetLedger();
-                updateMapCanvasDisplay();
-                saveStateToLocalStorage();
+                state.floatingImagesList.push({ id: imgId, src: evt.target.result, name: file.name, x: 250, y: 200, w: 130, h: 130 });
+                syncFloatingImageAssetLedger(); updateMapCanvasDisplay(); saveStateToLocalStorage();
             };
             reader.readAsDataURL(file);
         });
@@ -787,36 +687,29 @@
                 assetLedgerContainer.innerHTML = `<div class="text-slate-500 italic text-center py-1">No floating graphic elements deployed.</div>`;
                 return;
             }
-
             state.floatingImagesList.forEach((imgObj) => {
                 let row = document.createElement('div');
                 row.className = "flex justify-between items-center bg-slate-900 border border-slate-800 rounded px-2 py-1 gap-2";
                 row.innerHTML = `
                     <img src="${imgObj.src}" class="w-5 h-5 object-cover rounded bg-white">
                     <span class="truncate flex-1 text-slate-300 font-mono text-[10px]">${imgObj.name}</span>
-                    <button class="text-rose-400 hover:text-rose-600 font-black text-xs px-1 hover:bg-rose-950/40 rounded transition">×</button>
+                    <button class="text-rose-400 hover:text-rose-600 font-black text-xs px-1 rounded transition">×</button>
                 `;
                 row.querySelector('button').addEventListener('click', () => {
                     state.floatingImagesList = state.floatingImagesList.filter(item => item.id !== imgObj.id);
-                    syncFloatingImageAssetLedger();
-                    updateMapCanvasDisplay();
-                    saveStateToLocalStorage();
+                    if(state.selectedAssetId === imgObj.id) state.selectedAssetId = null;
+                    syncFloatingImageAssetLedger(); updateMapCanvasDisplay(); saveStateToLocalStorage();
                 });
                 assetLedgerContainer.appendChild(row);
             });
         }
 
         boundaryImageInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if(!file || state.selectedFeatureId === null) {
-                alert("Click a target boundary shape on the map canvas window workspace first.");
-                return;
-            }
+            const file = e.target.files[0]; if(!file || state.selectedFeatureId === null) return;
             const reader = new FileReader();
             reader.onload = function(evt) {
                 state.boundaryTextures[state.selectedFeatureId] = evt.target.result;
-                updateMapCanvasDisplay();
-                saveStateToLocalStorage();
+                updateMapCanvasDisplay(); saveStateToLocalStorage();
             };
             reader.readAsDataURL(file);
         });
@@ -825,32 +718,25 @@
             if(state.pastedRows.length > 0) {
                 let id = feature.id || extractFeatureIdentityToken(feature);
                 let record = state.pastedRows.find(r => r.mappedFeatureId === id);
-                return record ? record.value : 0;
+                return record ? record.value : null; 
             }
-            return parseFloat(feature.properties[state.selectedProp]) || 0;
+            return feature.properties[state.selectedProp] !== undefined ? parseFloat(feature.properties[state.selectedProp]) : null;
         }
 
         function getFeatureLabelText(feature) {
             if(state.pastedRows.length > 0) {
                 let id = feature.id || extractFeatureIdentityToken(feature);
                 let record = state.pastedRows.find(r => r.mappedFeatureId === id);
-                if(record && record.cellsDataMap[state.labelProp] !== undefined) {
-                    return record.cellsDataMap[state.labelProp].toString();
-                }
+                if(record && record.cellsDataMap[state.labelProp] !== undefined) return record.cellsDataMap[state.labelProp].toString();
             }
             return feature.properties[state.selectedProp] || "";
         }
 
-        // COMPILE MAP CANVAS VISUAL LAYOUTS
         function updateMapCanvasDisplay() {
             const w = 900, h = 650;
             svg.attr("viewBox", `0 0 ${w} ${h}`).style("background", "#ffffff");
-            
-            geometryGroup.selectAll("*").remove();
-            interfaceGroup.selectAll("*").remove();
-            defs.selectAll("*").remove();
+            geometryGroup.selectAll("*").remove(); interfaceGroup.selectAll("*").remove(); defs.selectAll("*").remove();
 
-            // RENDER EDITORIAL TITLES
             const metaGroup = interfaceGroup.append("g").attr("text-anchor", "middle");
             metaGroup.append("text").attr("x", w / 2).attr("y", 42).attr("font-size", "24px").attr("font-weight", "700").attr("fill", "#0f172a").text(state.titleText);
             metaGroup.append("text").attr("x", w / 2).attr("y", 64).attr("font-size", "12px").attr("fill", "#64748b").text(state.subtitleText);
@@ -858,21 +744,24 @@
             if(!runtimeGeoJsonMemory) return;
 
             const features = runtimeGeoJsonMemory.features;
-            const parsedValues = features.map(getFeatureMetricValue);
-            const minV = d3.min(parsedValues) || 0;
-            const maxV = d3.max(parsedValues) || 100;
+            
+            // CRITICAL FIX: Extract metrics strictly from states that are active/mapped to fix the uniform color issue
+            let activeValues = features.map(getFeatureMetricValue).filter(v => v !== null);
+            if(activeValues.length === 0) activeValues = [0, 100];
+            
+            const minV = d3.min(activeValues);
+            const maxV = d3.max(activeValues);
+            const rangeDelta = maxV - minV || 1;
 
             let colorScaler;
-            
             if (state.executionMode === 'gradient') {
                 if(state.gradientStyle === 'custom') {
-                    let domainArr = state.customGradientNodes.map(n => minV + (n.offset / 100) * (maxV - minV));
+                    let domainArr = state.customGradientNodes.map(n => minV + (n.offset / 100) * rangeDelta);
                     let rangeArr = state.customGradientNodes.map(n => n.color);
                     colorScaler = d3.scaleLinear().domain(domainArr).range(rangeArr).clamp(true);
                 } else {
                     let paletteRamp = [...colorRamps[state.gradientStyle]];
                     if(state.reverseColors) paletteRamp.reverse();
-                    
                     if(state.customStops.length >= 1) {
                         colorScaler = d3.scaleThreshold().domain(state.customStops).range(paletteRamp.slice(0, state.customStops.length + 1));
                     } else {
@@ -880,22 +769,27 @@
                     }
                 }
             } else {
-                let peakMargin = d3.max(parsedValues.map(Math.abs)) || 1;
+                let peakMargin = d3.max(activeValues.map(Math.abs)) || 1;
                 colorScaler = (val) => {
-                    if (val === 0) return "#f1f5f9";
-                    if (val > 0) {
-                        return d3.interpolateLab("#f8fafc", state.partyAColor)(Math.min(1, val / peakMargin));
-                    } else {
-                        return d3.interpolateLab("#f8fafc", state.partyBColor)(Math.min(1, Math.abs(val) / peakMargin));
-                    }
+                    if (val === null || val === 0) return "#f8fafc";
+                    return val > 0 ? d3.interpolateLab("#f8fafc", state.partyAColor)(Math.min(1, val / peakMargin))
+                                   : d3.interpolateLab("#f8fafc", state.partyBColor)(Math.min(1, Math.abs(val) / peakMargin));
                 };
             }
 
-            const flatProjection = d3.geoIdentity().reflectY(true).fitSize([w - 100, h - 280], runtimeGeoJsonMemory);
+            // CRITICAL FIX: Layer layout container transformations applied with customizable visual multipliers
+            const currentLayoutScale = state.mapScale || 1.0;
+            const flatProjection = d3.geoIdentity().reflectY(true).fitSize([(w - 100) * currentLayoutScale, (h - 280) * currentLayoutScale], runtimeGeoJsonMemory);
             const pathGen = d3.geoPath().projection(flatProjection);
-            const internalGeomGroup = geometryGroup.append("g").attr("class", "geometry-map-core-frame").attr("transform", `translate(50, 160)`);
+            
+            // Center map container dynamically depending on scale factor
+            const translateX = (w / 2) - (((w - 100) * currentLayoutScale) / 2) + 10;
+            const translateY = 150;
 
-            // Redraw Layer Polygons
+            const internalGeomGroup = geometryGroup.append("g")
+                .attr("class", "geometry-map-core-frame")
+                .attr("transform", `translate(${translateX}, ${translateY})`);
+
             internalGeomGroup.selectAll(".map-polygon-layer")
                 .data(features)
                 .join("path")
@@ -905,37 +799,29 @@
                 .attr("stroke-width", state.borderStroke)
                 .each(function(d) {
                     let fId = d.id || extractFeatureIdentityToken(d);
+                    let mVal = getFeatureMetricValue(d);
                     if(state.boundaryTextures[fId]) {
                         let bounds = pathGen.bounds(d);
                         let bw = bounds[1][0] - bounds[0][0] || 10;
                         let bh = bounds[1][1] - bounds[0][1] || 10;
-                        
                         let clipId = `clip-${fId.replace(/[^a-zA-Z0-9]/g, "-")}`;
                         let patternId = `pat-${fId.replace(/[^a-zA-Z0-9]/g, "-")}`;
 
                         defs.append("clipPath").attr("id", clipId).append("path").attr("d", pathGen(d));
-                        
-                        defs.append("pattern")
-                            .attr("id", patternId)
-                            .attr("patternUnits", "userSpaceOnUse")
-                            .attr("x", bounds[0][0]).attr("y", bounds[0][1])
-                            .attr("width", bw).attr("height", bh)
-                            .append("image")
-                            .attr("xlink:href", state.boundaryTextures[fId])
-                            .attr("width", bw).attr("height", bh)
-                            .attr("preserveAspectRatio", "none");
-
+                        defs.append("pattern").attr("id", patternId).attr("patternUnits", "userSpaceOnUse")
+                            .attr("x", bounds[0][0]).attr("y", bounds[0][1]).attr("width", bw).attr("height", bh)
+                            .append("image").attr("xlink:href", state.boundaryTextures[fId]).attr("width", bw).attr("height", bh).attr("preserveAspectRatio", "none");
                         d3.select(this).attr("fill", `url(#${patternId})`);
                     } else {
-                        d3.select(this).attr("fill", colorScaler(getFeatureMetricValue(d)));
+                        d3.select(this).attr("fill", mVal !== null ? colorScaler(mVal) : "#e2e8f0");
                     }
                 })
                 .on("click", function(event, d) {
+                    event.stopPropagation();
                     let fId = d.id || extractFeatureIdentityToken(d);
                     state.selectedFeatureId = fId;
-                    
                     let name = getFeatureLabelText(d) || fId;
-                    let val = getFeatureMetricValue(d);
+                    let val = getFeatureMetricValue(d) || 0;
 
                     infoOverlayBox.classList.remove('hidden');
                     infoBoxTitle.textContent = name;
@@ -945,25 +831,52 @@
                     d3.select(this).attr("stroke", "#fbbf24").attr("stroke-width", 2).raise();
                 });
 
-            // RE-RENDER RUNTIME ACTIVE FLOATING IMAGES ON TOP OF GEOMETRY
+            // RENDER INTERACTIVE DRAGGABLE & DRAG-RESIZABLE IMAGES
             state.floatingImagesList.forEach((imgRecord) => {
-                let node = geometryGroup.append("image")
+                let isSelected = state.selectedAssetId === imgRecord.id;
+                let imgGroup = geometryGroup.append("g").attr("id", `g-${imgRecord.id}`);
+
+                let imgNode = imgGroup.append("image")
                     .attr("xlink:href", imgRecord.src)
                     .attr("x", imgRecord.x).attr("y", imgRecord.y)
                     .attr("width", imgRecord.w).attr("height", imgRecord.h)
-                    .attr("class", "draggable-element");
+                    .attr("class", "draggable-element")
+                    .on("click", function(event) {
+                        event.stopPropagation();
+                        state.selectedAssetId = imgRecord.id;
+                        updateMapCanvasDisplay();
+                    });
 
-                node.call(d3.drag().on("drag", function(event) {
-                    let nextX = parseFloat(d3.select(this).attr("x")) + event.dx;
-                    let nextY = parseFloat(d3.select(this).attr("y")) + event.dy;
-                    d3.select(this).attr("x", nextX).attr("y", nextY);
-                    imgRecord.x = nextX; 
-                    imgRecord.y = nextY;
+                imgNode.call(d3.drag().on("drag", function(event) {
+                    imgRecord.x += event.dx;
+                    imgRecord.y += event.dy;
+                    updateMapCanvasDisplay();
                     saveStateToLocalStorage();
                 }));
+
+                if(isSelected) {
+                    imgGroup.append("rect")
+                        .attr("x", imgRecord.x).attr("y", imgRecord.y)
+                        .attr("width", imgRecord.w).attr("height", imgRecord.h)
+                        .attr("class", "selected-asset-border");
+
+                    // Bottom-Right Corner Resize Drag Node Anchor Component
+                    let handleNode = imgGroup.append("circle")
+                        .attr("cx", imgRecord.x + imgRecord.w)
+                        .attr("cy", imgRecord.y + imgRecord.h)
+                        .attr("r", 7)
+                        .attr("class", "resize-handle");
+
+                    handleNode.call(d3.drag().on("drag", function(event) {
+                        imgRecord.w = Math.max(20, imgRecord.w + event.dx);
+                        imgRecord.h = Math.max(20, imgRecord.h + event.dy);
+                        updateMapCanvasDisplay();
+                        saveStateToLocalStorage();
+                    }));
+                }
             });
 
-            // LEGEND RENDERING GROUP
+            // LEGEND RENDERING GENERATOR
             const legendGroup = interfaceGroup.append("g").attr("transform", `translate(${w/2 - 150}, 95)`);
             const legW = 300, legH = 8;
 
@@ -972,130 +885,89 @@
                     const gradId = "custom-gradient-ramp-token";
                     const linearGrad = defs.append("linearGradient").attr("id", gradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
                     state.customGradientNodes.forEach(n => linearGrad.append("stop").attr("offset", `${n.offset}%`).attr("stop-color", n.color));
-                    
-                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`).attr("rx", 1);
-                    legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(minV, state.numberFormat));
-                    legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(maxV, state.numberFormat));
+                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`);
                 } else if(state.customStops.length > 0) {
-                    let totalStops = state.customStops.length;
-                    let blockW = legW / (totalStops + 1);
-                    
-                    legendGroup.append("rect").attr("x", 0).attr("y", 0).attr("width", blockW).attr("height", legH).attr("fill", colorScaler(minV));
-                    legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(minV, state.numberFormat));
-
+                    let blockW = legW / (state.customStops.length + 1);
+                    legendGroup.append("rect").attr("width", blockW).attr("height", legH).attr("fill", colorScaler(minV));
                     state.customStops.forEach((stop, i) => {
-                        let rx = (i + 1) * blockW;
-                        legendGroup.append("rect").attr("x", rx).attr("y", 0).attr("width", blockW).attr("height", legH).attr("fill", colorScaler(stop + 0.001));
-                        legendGroup.append("text").attr("x", rx).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").attr("text-anchor", "middle").text(formatMetricDisplay(stop, state.numberFormat));
+                        legendGroup.append("rect").attr("x", (i + 1) * blockW).attr("width", blockW).attr("height", legH).attr("fill", colorScaler(stop + 0.001));
                     });
-                    legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").attr("text-anchor", "end").text(formatMetricDisplay(maxV, state.numberFormat));
                 } else {
-                    const gradId = "gradient-ramp-token-v5";
+                    const gradId = "gradient-ramp-token-v7";
                     const linearGrad = defs.append("linearGradient").attr("id", gradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
                     let paletteRamp = [...colorRamps[state.gradientStyle]];
                     if(state.reverseColors) paletteRamp.reverse();
                     paletteRamp.forEach((col, i) => linearGrad.append("stop").attr("offset", `${(i / (paletteRamp.length - 1)) * 100}%`).attr("stop-color", col));
-                    
-                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`).attr("rx", 1);
-                    legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(minV, state.numberFormat));
-                    legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(maxV, state.numberFormat));
+                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`);
                 }
+                legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(minV, state.numberFormat));
+                legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(maxV, state.numberFormat));
             } else {
-                let peakMargin = d3.max(parsedValues.map(Math.abs)) || 1;
-                const electGradId = "election-ramp-token-v5";
+                let peakMargin = d3.max(activeValues.map(Math.abs)) || 1;
+                const electGradId = "election-ramp-token-v7";
                 const linearGrad = defs.append("linearGradient").attr("id", electGradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
-                
                 linearGrad.append("stop").attr("offset", "0%").attr("stop-color", state.partyBColor);
                 linearGrad.append("stop").attr("offset", "50%").attr("stop-color", "#f8fafc");
                 linearGrad.append("stop").attr("offset", "100%").attr("stop-color", state.partyAColor);
-
-                legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${electGradId})`).attr("rx", 1);
-                legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", state.partyBColor).attr("font-weight","bold").text(`${formatMetricDisplay(Math.abs(peakMargin), state.numberFormat)} (Party B)`);
-                legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", state.partyAColor).attr("font-weight","bold").text(`${formatMetricDisplay(peakMargin, state.numberFormat)} (Party A)`);
+                legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${electGradId})`);
+                legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", state.partyBColor).text(`${formatMetricDisplay(Math.abs(peakMargin), state.numberFormat)} (B)`);
+                legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", state.partyAColor).text(`${formatMetricDisplay(peakMargin, state.numberFormat)} (A)`);
             }
 
-            // RENDERING GEOGRAPHIC STRING TYPOGRAPHY MAP LABELS
             if(state.showLabels) {
-                const labelGroup = internalGeomGroup.append("g")
-                                    .attr("font-family", state.labelFont)
-                                    .attr("font-size", `${state.labelSize}px`)
-                                    .attr("fill", state.labelColor)
-                                    .attr("text-anchor", "middle");
-
+                const labelGroup = internalGeomGroup.append("g").attr("font-family", state.labelFont).attr("font-size", `${state.labelSize}px`).attr("fill", state.labelColor).attr("text-anchor", "middle");
                 let labelPlacedPositions = [];
-
                 features.forEach(f => {
-                    let labelString = getFeatureLabelText(f);
-                    if(!labelString) return;
-                    
-                    let centroid = pathGen.centroid(f);
-                    if(!centroid || isNaN(centroid[0]) || isNaN(centroid[1])) return;
-
+                    let labelString = getFeatureLabelText(f); if(!labelString) return;
+                    let centroid = pathGen.centroid(f); if(!centroid || isNaN(centroid[0]) || isNaN(centroid[1])) return;
                     if(state.preventOverlap) {
-                        let collisionFlag = labelPlacedPositions.some(pos => {
-                            let gapDist = Math.hypot(pos[0] - centroid[0], pos[1] - centroid[1]);
-                            return gapDist < (state.labelSize * 1.8);
-                        });
-                        if(collisionFlag) return; 
+                        let collision = labelPlacedPositions.some(p => Math.hypot(p[0] - centroid[0], p[1] - centroid[1]) < (state.labelSize * 1.8));
+                        if(collision) return;
                     }
-
                     labelPlacedPositions.push(centroid);
                     labelGroup.append("text").attr("x", centroid[0]).attr("y", centroid[1] + 3).text(labelString);
                 });
             }
         }
 
+        svg.on("click", () => { state.selectedAssetId = null; updateMapCanvasDisplay(); });
         document.getElementById('zoomIn').addEventListener('click', () => svg.transition().call(zoomBehavior.scaleBy, 1.4));
         document.getElementById('zoomOut').addEventListener('click', () => svg.transition().call(zoomBehavior.scaleBy, 0.6));
         document.getElementById('zoomReset').addEventListener('click', () => svg.transition().call(zoomBehavior.transform, d3.zoomIdentity));
 
-        // HIGH-RESOLUTION IMAGE EXPORT ISOLATION ENGINE
         document.getElementById('downloadImageBtn').addEventListener('click', () => {
             const originalSvgEl = document.getElementById('mapCanvas');
-            
-            // Clone the SVG element so we can modify it off-screen without altering workspace view
             const exportClone = originalSvgEl.cloneNode(true);
-            
-            // CRITICAL FIX: Reset the zoom matrix transform directly on the export node
             const cloneMasterGroup = exportClone.querySelector("#masterCanvasGroup");
-            if (cloneMasterGroup) {
-                cloneMasterGroup.removeAttribute("transform");
-            }
+            if (cloneMasterGroup) cloneMasterGroup.removeAttribute("transform");
             
-            // Set explicit high-definition base dimensions
-            exportClone.setAttribute("width", "1800");
-            exportClone.setAttribute("height", "1300");
+            // Explicitly strip bounding highlights from image assets before capturing export stream snapshot vectors
+            exportClone.querySelectorAll(".selected-asset-border, .resize-handle").forEach(node => node.remove());
 
-            const serializer = new XMLSerializer();
-            let svgString = serializer.serializeToString(exportClone);
+            exportClone.setAttribute("width", "1800"); exportClone.setAttribute("height", "1300");
+            const svgString = new XMLSerializer().serializeToString(exportClone);
             const svgBlob = new Blob([svgString], {type: "image/svg+xml;charset=utf-8"});
             const blobURL = (window.URL || window.webkitURL || window).createObjectURL(svgBlob);
             
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                canvas.width = 1800; canvas.height = 1300; 
+                canvas.width = 1800; canvas.height = 1300;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = "#ffffff";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                
-                const link = document.createElement('a');
-                link.href = canvas.toDataURL('image/png');
-                link.download = `Studio_Cartography_Map.png`;
-                link.click();
-                
+                const link = document.createElement('a'); link.href = canvas.toDataURL('image/png');
+                link.download = `Studio_Cartography_Map.png`; link.click();
                 (window.URL || window.webkitURL).revokeObjectURL(blobURL);
             };
             img.src = blobURL;
         });
         
-        if(state.clipboardText) {
-            runClipboardDataCompilation();
-        } else {
-            updateMapCanvasDisplay();
-        }
+        document.getElementById('processClipboardBtn').addEventListener('click', () => {
+            state.clipboardText = csvPasteInput.value; runClipboardDataCompilation();
+        });
+
+        if(state.clipboardText) { runClipboardDataCompilation(); } else { updateMapCanvasDisplay(); }
     </script>
 </body>
 </html>
-
