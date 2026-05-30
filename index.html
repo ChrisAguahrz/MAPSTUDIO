@@ -321,55 +321,50 @@
         }
 
         function saveStateToLocalStorage() {
-            try {
-                localStorage.setItem('MAP_STUDIO_PROJECT_DATA_V7', JSON.stringify(state));
-                if (runtimeGeoJsonMemory) localStorage.setItem('MAP_STUDIO_GEOJSON_CACHE_V7', JSON.stringify(runtimeGeoJsonMemory));
-                document.getElementById('saveStatus').textContent = "Saved";
-            } catch(e) { document.getElementById('saveStatus').textContent = "Cache Full"; }
-        }
+    try {
+        // Create a shallow copy to clean up asset weight before saving
+        const storageStateSnapshot = { ...state };
+        storageStateSnapshot.floatingImagesList = []; 
+        
+        localStorage.setItem('MAP_STUDIO_PROJECT_DATA_V7', JSON.stringify(storageStateSnapshot));
+        document.getElementById('saveStatus').textContent = "Saved";
+    } catch(e) { 
+        document.getElementById('saveStatus').textContent = "Storage Error"; 
+    }
+}
 
-        function loadStateFromLocalStorage() {
-            const cached = localStorage.getItem('MAP_STUDIO_PROJECT_DATA_V7');
-            const cachedGeo = localStorage.getItem('MAP_STUDIO_GEOJSON_CACHE_V7');
-            if (cachedGeo) { try { runtimeGeoJsonMemory = JSON.parse(cachedGeo); } catch(e) { runtimeGeoJsonMemory = null; } }
-            if (!cached) return;
-            try {
-                Object.assign(state, JSON.parse(cached));
-                csvPasteInput.value = state.clipboardText;
-                gradientStyleSelect.value = state.gradientStyle;
-                numberFormatSelect.value = state.numberFormat;
-                reverseColors.checked = state.reverseColors;
-                enableShadows.checked = state.enableShadows;
-                borderStrokeSlider.value = state.borderStroke;
-                mapScaleSlider.value = state.mapScale || 1.0;
-                document.getElementById('titleInput').value = state.titleText;
-                document.getElementById('subtitleInput').value = state.subtitleText;
-                document.getElementById('partyAColor').value = state.partyAColor;
-                document.getElementById('partyBColor').value = state.partyBColor;
-                document.getElementById('showLabelsToggle').checked = state.showLabels;
-                document.getElementById('preventOverlapToggle').checked = state.preventOverlap;
-                document.getElementById('labelSizeInput').value = state.labelSize;
-                document.getElementById('labelColorInput').value = state.labelColor;
-                document.getElementById('labelFontSelect').value = state.labelFont;
+function loadStateFromLocalStorage() {
+    const cached = localStorage.getItem('MAP_STUDIO_PROJECT_DATA_V7');
+    if (!cached) return;
+    try {
+        Object.assign(state, JSON.parse(cached));
+        csvPasteInput.value = state.clipboardText;
+        gradientStyleSelect.value = state.gradientStyle;
+        numberFormatSelect.value = state.numberFormat;
+        reverseColors.checked = state.reverseColors;
+        enableShadows.checked = state.enableShadows;
+        borderStrokeSlider.value = state.borderStroke;
+        mapScaleSlider.value = state.mapScale || 1.0;
+        document.getElementById('titleInput').value = state.titleText;
+        document.getElementById('subtitleInput').value = state.subtitleText;
+        document.getElementById('partyAColor').value = state.partyAColor;
+        document.getElementById('partyBColor').value = state.partyBColor;
+        document.getElementById('showLabelsToggle').checked = state.showLabels;
+        document.getElementById('preventOverlapToggle').checked = state.preventOverlap;
+        document.getElementById('labelSizeInput').value = state.labelSize;
+        document.getElementById('labelColorInput').value = state.labelColor;
+        document.getElementById('labelFontSelect').value = state.labelFont;
 
-                syncBreakChipsContainer();
-                toggleCustomGradientUIPanel();
-                renderGradientTrackRailPins();
-                syncFloatingImageAssetLedger();
-                
-                if (runtimeGeoJsonMemory) {
-                    const testFeatureProps = Object.keys(runtimeGeoJsonMemory.features[0].properties);
-                    propertySelect.innerHTML = '';
-                    testFeatureProps.forEach(k => {
-                        let opt = document.createElement('option'); opt.value = k; opt.textContent = k;
-                        propertySelect.appendChild(opt);
-                    });
-                    propertySelect.disabled = false;
-                    propertySelect.value = state.selectedProp;
-                }
-                if(state.executionMode === 'election') document.getElementById('modeElectionBtn').click();
-            } catch(e) {}
-        }
+        syncBreakChipsContainer();
+        toggleCustomGradientUIPanel();
+        renderGradientTrackRailPins();
+        syncFloatingImageAssetLedger(); // Restored to track your asset names correctly
+        
+        if(state.executionMode === 'election') document.getElementById('modeElectionBtn').click();
+    } catch(e) { 
+        console.log("Error loading cached state mapping properties."); 
+    }
+}
 
         async function loadDefaultMapOnLaunch() {
             if (runtimeGeoJsonMemory) return;
