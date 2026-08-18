@@ -1,7 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <html lang="en">
+<head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -256,6 +258,8 @@
           <option value="crop">Hide Regions Without Data</option>
         </select>
 
+        <label>Magnify Region</label>
+        <select id="magnifier-region" disabled><option value="">Upload GeoJSON first</option></select>
         <button class="btn btn-secondary" onclick="openMagnifierModal()">+ Add Inset Magnifier Box</button>
         <button class="btn btn-secondary" onclick="clearMagnifiers()">Reset Inset Boxes</button>
       </div>
@@ -338,10 +342,11 @@
             throw new Error("No feature array found.");
           }
 
-          raw.features = raw.features.filter(isRenderableFeature);
+              raw.features = raw.features.filter(isRenderableFeature);
           if (!raw.features.length) throw new Error("No renderable features found.");
           geojsonData = raw;
           populateGeoJSONFields();
+          populateMagnifierRegions();
           renderMap();
           saveProjectState();
           showNotification("Success", "GeoJSON boundary map loaded successfully.");
@@ -404,7 +409,7 @@
       document.getElementById('legend-width').value = state.legendWidth || 600;
       document.getElementById('crop-option').value = state.crop || 'full'; document.getElementById('calc-mode').value = state.calc || 'percent'; document.getElementById('map-style-mode').value = state.style || 'general';
       if (state.colors) { document.getElementById('color-ndp').value = state.colors.NDP; document.getElementById('color-idp').value = state.colors.IDP; document.getElementById('color-ncp').value = state.colors.NCP; }
-      if (geojsonData) { populateGeoJSONFields(); document.getElementById('geojson-field').value = state.entityField || document.getElementById('geojson-field').value; document.getElementById('geojson-label-field').value = state.labelField || ''; }
+      if (geojsonData) { populateGeoJSONFields(); populateMagnifierRegions(); document.getElementById('geojson-field').value = state.entityField || document.getElementById('geojson-field').value; document.getElementById('geojson-label-field').value = state.labelField || ''; }
       renderTable(); renderMap();
       return true;
     }
@@ -428,6 +433,7 @@
       if (field === 'region') parsedData[index].region = value.trim();
       else parsedData[index][field] = parseFloat(value) || 0;
       renderMap();
+      saveProjectState();
     }
 
     // --- COLOR INTENSITY SCALE (Higher % = Darker Shade) ---
@@ -476,7 +482,7 @@
           const key = `${party}_${range}`;
           const input = document.createElement('input');
           input.type = 'color'; input.title = `${party} ${range}%`; input.value = legendOverrides[key] || getColorShade(partyColors[party], range, 0, 100);
-          input.onchange = () => { legendOverrides[key] = input.value; renderMap(); };
+          input.onchange = () => { legendOverrides[key] = input.value; renderMap(); saveProjectState(); };
           row.appendChild(input);
         });
         holder.appendChild(row);
@@ -486,6 +492,21 @@
     function getFeatureName(f) {
       const field = document.getElementById('geojson-field').value;
       return field && f.properties && f.properties[field] != null ? String(f.properties[field]).trim() : '';
+    }
+
+    function getMapColor(party, value) {
+      const ranges = document.getElementById('custom-ranges').value.split(',').map(r => Number(r.trim())).filter(Number.isFinite).sort((a,b) => a-b);
+      let selected = ranges[0] || 0;
+      ranges.forEach(range => { if (value >= range) selected = range; });
+      const key = `${party}_${selected}`;
+      return legendOverrides[key] || getColorShade(partyColors[party], selected, 0, 100);
+    }
+
+    function populateMagnifierRegions() {
+      const select = document.getElementById('magnifier-region');
+      const names = [...new Set(geojsonData.features.map(getFeatureName).filter(Boolean))];
+      select.innerHTML = '<option value="">Select region</option>' + names.map(name => `<option value="${name.replace(/"/g, '&quot;')}">${name}</option>`).join('');
+      select.disabled = !names.length;
     }
 
     // --- MAP RENDERER ---
@@ -553,7 +574,7 @@
         .attr("class", d => dataMap[getFeatureName(d).toLowerCase()] ? "region" : "region region-greyed")
         .attr("fill", d => {
           const match = dataMap[getFeatureName(d).toLowerCase()];
-          return match ? getColorShade(partyColors[match.winner], match.val, 0, 100) : "#e2e8f0";
+          return match ? getMapColor(match.winner, match.val) : "#e2e8f0";
         });
 
       const labelField = document.getElementById('geojson-label-field').value;
@@ -654,11 +675,11 @@
         showNotification("Limit Reached", "Maximum 5 magnification boxes allowed.");
         return;
       }
-      showModal("Magnify Region", "Enter region name to place an inset box:", true, (regionName) => {
-        if (!regionName) return;
-        magnifiers.push({ region: regionName });
-        renderMap();
-      });
+      const regionName = document.getElementById('magnifier-region').value;
+      if (!regionName) { showNotification("Select Region", "Choose a region from the magnifier dropdown first."); return; }
+      if (!magnifiers.some(m => m.region.toLowerCase() === regionName.toLowerCase())) magnifiers.push({ region: regionName });
+      renderMap();
+      saveProjectState();
     }
 
     function openSaveModal() {
@@ -666,14 +687,18 @@
         if (!name) return;
         const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}");
         sessions[name] = {
-          parsedData,
+          geojsonData, parsedData, magnifiers, legendOverrides,
           title: document.getElementById('map-title-input').value,
           footnote: document.getElementById('map-footnote-input').value,
           ranges: document.getElementById('custom-ranges').value,
-          colors: { NDP: partyColors.NDP, IDP: partyColors.IDP, NCP: partyColors.NCP }
+          legendWidth: document.getElementById('legend-width').value,
+          entityField: document.getElementById('geojson-field').value,
+          labelField: document.getElementById('geojson-label-field').value,
+          colors: { NDP: document.getElementById('color-ndp').value, IDP: document.getElementById('color-idp').value, NCP: document.getElementById('color-ncp').value }
         };
         localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
         updateSavedSessionsDropdown();
+        saveProjectState();
         showNotification("Saved", "Election session saved locally.");
       });
     }
@@ -725,14 +750,22 @@
       const session = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}")[key];
       if (!session) return;
 
-      parsedData = session.parsedData;
+      geojsonData = session.geojsonData || geojsonData;
+      parsedData = session.parsedData || [];
+      magnifiers = session.magnifiers || [];
+      legendOverrides = session.legendOverrides || {};
+      if (geojsonData) { populateGeoJSONFields(); populateMagnifierRegions(); }
       document.getElementById('map-title-input').value = session.title;
       document.getElementById('map-footnote-input').value = session.footnote;
       document.getElementById('custom-ranges').value = session.ranges;
+      if (session.legendWidth) document.getElementById('legend-width').value = session.legendWidth;
+      if (session.entityField) document.getElementById('geojson-field').value = session.entityField;
+      if (session.labelField) document.getElementById('geojson-label-field').value = session.labelField;
       
       document.getElementById('color-ndp').value = session.colors.NDP;
       document.getElementById('color-idp').value = session.colors.IDP;
       document.getElementById('color-ncp').value = session.colors.NCP;
+      populateMagnifierRegions();
 
       renderTable();
       renderMap();
@@ -741,7 +774,14 @@
     // --- 4K EXPORT ---
     function export4KImage() {
       const svgElement = document.getElementById('map-svg');
-      const xml = new XMLSerializer().serializeToString(svgElement);
+      const exportSvg = svgElement.cloneNode(true);
+      exportSvg.querySelectorAll('path.region, path.region-greyed').forEach(path => {
+        path.setAttribute('stroke', path.classList.contains('region-greyed') ? '#cbd5e1' : '#ffffff');
+        path.setAttribute('stroke-width', path.classList.contains('region-greyed') ? '0.75' : '0.75');
+        path.setAttribute('vector-effect', 'non-scaling-stroke');
+      });
+      exportSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const xml = new XMLSerializer().serializeToString(exportSvg);
       const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
       const URL = window.URL || window.webkitURL || window;
       const blobURL = URL.createObjectURL(svgBlob);
