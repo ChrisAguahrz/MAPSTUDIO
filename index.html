@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+    <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -189,6 +189,10 @@
         
         <label>Upload GeoJSON Boundary Map</label>
         <input type="file" id="geojson-file" accept=".geojson,.json,.txt" onchange="handleGeoJSONUpload(event)">
+        <label>GeoJSON Entity Field</label>
+        <select id="geojson-field" onchange="renderMap()" disabled>
+          <option value="">Upload GeoJSON first</option>
+        </select>
       </div>
 
       <div class="card">
@@ -324,7 +328,10 @@
             throw new Error("No feature array found.");
           }
 
+          raw.features = raw.features.filter(isRenderableFeature);
+          if (!raw.features.length) throw new Error("No renderable features found.");
           geojsonData = raw;
+          populateGeoJSONFields();
           renderMap();
           showNotification("Success", "GeoJSON boundary map loaded successfully.");
         } catch(err) {
@@ -393,10 +400,26 @@
       return c.toString();
     }
 
+    function isRenderableFeature(f) {
+      if (!f || !f.geometry || !f.geometry.type) return false;
+      try {
+        d3.geoBounds(f);
+        return true;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    function populateGeoJSONFields() {
+      const fieldSelect = document.getElementById('geojson-field');
+      const fields = [...new Set(geojsonData.features.flatMap(f => Object.keys(f.properties || {})))];
+      fieldSelect.innerHTML = fields.length ? fields.map(field => `<option value="${field.replace(/"/g, '&quot;')}">${field}</option>`).join('') : '<option value="">No properties found</option>';
+      fieldSelect.disabled = !fields.length;
+    }
+
     function getFeatureName(f) {
-      if (!f.properties) return '';
-      // Added County check for Orland GeoJSON format
-      return f.properties.County || f.properties.county || f.properties.name || f.properties.NAME || f.properties.region || f.properties.REGION || f.properties.ADM1_EN || '';
+      const field = document.getElementById('geojson-field').value;
+      return field && f.properties && f.properties[field] != null ? String(f.properties[field]).trim() : '';
     }
 
     // --- MAP RENDERER ---
@@ -427,7 +450,7 @@
       }
 
       const hideUnmatched = document.getElementById('crop-option').value === 'crop';
-      let features = geojsonData.features;
+      let features = geojsonData.features.filter(isRenderableFeature);
 
       if (hideUnmatched) {
         features = features.filter(f => {
