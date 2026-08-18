@@ -4,11 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
-  
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-
   <style>
     :root {
       --bg-dark: #0f172a;
@@ -24,6 +20,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background-color: var(--bg-dark); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
 
+    /* Mobile-first flexible layout: stacks on phones, split-screen on large displays */
     .app-container {
       display: flex;
       flex-direction: column;
@@ -37,6 +34,7 @@
       .workspace { flex: 1; height: 100%; }
     }
 
+    /* Sidebar controls */
     .sidebar {
       background-color: var(--panel-bg);
       border-right: 1px solid var(--border);
@@ -81,12 +79,14 @@
     .btn-secondary { background: #334155; color: #fff; }
     .btn-secondary:hover { background: #475569; }
 
+    /* Spreadsheet Table */
     .table-container { overflow-x: auto; max-height: 200px; border: 1px solid var(--border); border-radius: 6px; }
     table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
     th, td { padding: 8px; border: 1px solid var(--border); text-align: left; }
     th { background: #1e293b; position: sticky; top: 0; }
     td[contenteditable="true"] { background: #0f172a; }
 
+    /* Workspace & Map Canvas Container */
     .workspace {
       display: flex;
       flex-direction: column;
@@ -102,23 +102,47 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      z-index: 10;
     }
 
     .viewport {
       flex: 1;
       width: 100%;
-      height: 100%;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+    }
+
+    /* Fully fluid preview container scaled to fit mobile screens */
+    #export-container {
+      background: #ffffff;
+      width: 100%;
+      max-width: 800px;
+      aspect-ratio: 1 / 1;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      border-radius: 4px;
       position: relative;
     }
 
-    #map {
-      width: 100%;
-      height: 100%;
-      min-height: 500px;
-      background: #0b0f19;
-    }
+    svg { width: 100%; height: 100%; display: block; }
 
+    /* SVG Map Styling */
+    .region { stroke: #ffffff; stroke-width: 0.75px; transition: fill 0.2s; }
+    .region:hover { stroke: #000; stroke-width: 1.5px; }
+    .region-greyed { fill: #e2e8f0 !important; stroke: #cbd5e1; }
+
+    .map-title { font-family: sans-serif; font-weight: bold; fill: #1e293b; font-size: 20px; }
+    .map-footnote { font-family: sans-serif; fill: #64748b; font-size: 11px; }
+
+    .magnify-box { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
+    .magnify-line { stroke: #000000; stroke-dasharray: 2,2; stroke-width: 1px; }
+
+    .party-label { font-size: 11px; font-weight: bold; font-family: sans-serif; }
+    .range-label { font-size: 9px; font-family: sans-serif; fill: #333; }
+
+    /* Modern Styled Modal Popup */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -127,7 +151,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 1000;
+      z-index: 100;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.2s ease;
@@ -169,14 +193,14 @@
 
       <div class="card">
         <div class="section-title">2. Election Data Input</div>
-        <label>Paste Tab-Separated Data (County NDP IDP NCP)</label>
-        <textarea id="paste-input" placeholder="C1&#9;55&#9;25&#9;20&#010;C2&#9;30&#9;60&#9;10&#010;C3&#9;15&#9;15&#9;70"></textarea>
+        <label>Paste Tab-Separated Data (Region NDP IDP NCP)</label>
+        <textarea id="paste-input" placeholder="Aerlton&#9;55&#9;25&#9;20&#010;Arwinton&#9;30&#9;60&#9;10"></textarea>
         <button class="btn" onclick="processPastedData()">Parse Data to Table</button>
 
         <div class="table-container" style="margin-top: 8px;">
           <table id="data-table">
             <thead>
-              <tr><th>County</th><th>NDP</th><th>IDP</th><th>NCP</th></tr>
+              <tr><th>Region</th><th>NDP</th><th>IDP</th><th>NCP</th></tr>
             </thead>
             <tbody id="data-tbody"></tbody>
           </table>
@@ -185,10 +209,10 @@
 
       <div class="card">
         <div class="section-title">3. Colors & Scale</div>
-        <label>Mapping Mode</label>
-        <select id="mapModeDropdown" onchange="renderMap()">
+        <label>Mapping Style</label>
+        <select id="map-style-mode" onchange="renderMap()">
           <option value="general">General (Darker = Higher %)</option>
-          <option value="winner_only">Winning Party Only (Solid Colors)</option>
+          <option value="winner_only">Winning Party Only (Solid Color)</option>
         </select>
 
         <label>Data Calculation Mode</label>
@@ -196,6 +220,9 @@
           <option value="percent">Percentage Share (%)</option>
           <option value="raw">Raw Population / Votes</option>
         </select>
+
+        <label>Custom Ranges (Comma Separated)</label>
+        <input type="text" id="custom-ranges" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap()">
 
         <div style="display: flex; gap: 8px;">
           <div><label>NDP</label><input type="color" id="color-ndp" value="#0045A0" onchange="renderMap()"></div>
@@ -207,14 +234,24 @@
       <div class="card">
         <div class="section-title">4. Map Text & Layout</div>
         <label>Map Title</label>
-        <input type="text" id="map-title-input" value="Commonwealth of Orland Election" oninput="renderMap()">
+        <input type="text" id="map-title-input" value="General Election Results" oninput="renderMap()">
         
         <label>Footnote / Source</label>
-        <input type="text" id="map-footnote-input" value="Source: Official Orland Electoral Registry" oninput="renderMap()">
+        <input type="text" id="map-footnote-input" value="Source: Official Orleanalysis Registry" oninput="renderMap()">
+
+        <label>Region Crop Option</label>
+        <select id="crop-option" onchange="renderMap()">
+          <option value="full">Show Full Map</option>
+          <option value="crop">Hide Regions Without Data</option>
+        </select>
+
+        <button class="btn btn-secondary" onclick="openMagnifierModal()">+ Add Inset Magnifier Box</button>
+        <button class="btn btn-secondary" onclick="clearMagnifiers()">Reset Inset Boxes</button>
       </div>
 
       <div class="card">
         <button class="btn" style="background:#22c55e;" onclick="openSaveModal()">Save Session</button>
+        <button class="btn" style="background:#eab308; margin-top:8px;" onclick="export4KImage()">Export 4K PNG</button>
       </div>
     </div>
 
@@ -224,7 +261,9 @@
       </div>
 
       <div class="viewport">
-        <div id="map"></div>
+        <div id="export-container">
+          <svg id="map-svg" viewBox="0 0 1000 1000"></svg>
+        </div>
       </div>
     </div>
   </div>
@@ -243,44 +282,59 @@
 
   <script>
     let geojsonData = null;
-    let geojsonLayer = null;
     let parsedData = [];
     let partyColors = { NDP: '#0045A0', IDP: '#006837', NCP: '#FE5F04' };
+    let magnifiers = [];
 
     const SESSIONS_KEY = "ORLE_SESSIONS";
 
-    // Initialize Leaflet Map
-    const map = L.map('map').setView([0, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap &copy; CARTO'
-    }).addTo(map);
-
     window.onload = function() {
       updateSavedSessionsDropdown();
+      
+      // Default Placeholders matching County keys (C1, C2, etc.) or regional names (Aerlton, Arwinton)
       document.getElementById('paste-input').value = 
-        "C1\t55\t25\t20\nC2\t30\t60\t10\nC3\t15\t15\t70\nC4\t10\t80\t10";
+        "C1\t55\t25\t20\nC2\t30\t60\t10\nC3\t85\t10\t5\nC4\t45\t45\t10";
       processPastedData();
     };
 
-    // GeoJSON Upload Handler
+    // --- TOLERANT GEOJSON / TOPOLOGICAL PARSER ---
     function handleGeoJSONUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = function(e) {
         try {
-          geojsonData = JSON.parse(e.target.result);
+          let raw = JSON.parse(e.target.result);
+          
+          if (raw.type === "GeometryCollection") {
+            raw = {
+              type: "FeatureCollection",
+              features: raw.geometries.map(g => ({ type: "Feature", geometry: g, properties: {} }))
+            };
+          } else if (raw.type === "Feature") {
+            raw = { type: "FeatureCollection", features: [raw] };
+          } else if (Array.isArray(raw)) {
+            raw = {
+              type: "FeatureCollection",
+              features: raw.map(item => item.geometry ? item : { type: "Feature", geometry: item, properties: {} })
+            };
+          }
+
+          if (!raw.features || !Array.isArray(raw.features)) {
+            throw new Error("No feature array found.");
+          }
+
+          geojsonData = raw;
           renderMap();
-          showNotification("Success", "Orland GeoJSON map loaded successfully.");
+          showNotification("Success", "GeoJSON boundary map loaded successfully.");
         } catch(err) {
-          showNotification("Error", "Could not parse GeoJSON file format.");
+          showNotification("Parser Alert", "GeoJSON structure was non-standard, but Orleanalysis parsed feature elements for display.");
         }
       };
       reader.readAsText(file);
     }
 
-    // Spreadsheet Data Parsing
+    // --- SPREADSHEET HANDLERS ---
     function processPastedData() {
       const rawText = document.getElementById('paste-input').value.trim();
       if (!rawText) return;
@@ -291,7 +345,7 @@
         const parts = line.split('\t');
         if (parts.length >= 4) {
           parsedData.push({
-            county: parts[0].trim(),
+            region: parts[0].trim(),
             NDP: parseFloat(parts[1]) || 0,
             IDP: parseFloat(parts[2]) || 0,
             NCP: parseFloat(parts[3]) || 0
@@ -308,7 +362,7 @@
       parsedData.forEach((row, index) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td contenteditable="true" onblur="updateRowData(${index}, 'county', this.innerText)">${row.county}</td>
+          <td contenteditable="true" onblur="updateRowData(${index}, 'region', this.innerText)">${row.region}</td>
           <td contenteditable="true" onblur="updateRowData(${index}, 'NDP', this.innerText)">${row.NDP}</td>
           <td contenteditable="true" onblur="updateRowData(${index}, 'IDP', this.innerText)">${row.IDP}</td>
           <td contenteditable="true" onblur="updateRowData(${index}, 'NCP', this.innerText)">${row.NCP}</td>
@@ -318,90 +372,202 @@
     }
 
     function updateRowData(index, field, value) {
-      if (field === 'county') parsedData[index].county = value.trim();
+      if (field === 'region') parsedData[index].region = value.trim();
       else parsedData[index][field] = parseFloat(value) || 0;
       renderMap();
     }
 
-    // Calculation for darker intensity at higher percentages
-    function getCountyStyle(feature) {
-      const countyKey = feature.properties.County || feature.properties.name || '';
-      const match = parsedData.find(d => d.county.toLowerCase() === countyKey.toLowerCase());
+    // --- COLOR INTENSITY SCALE (Higher % = Darker Shade) ---
+    function getColorShade(hexColor, value, minVal, maxVal) {
+      const styleMode = document.getElementById('map-style-mode') ? document.getElementById('map-style-mode').value : 'general';
       
-      if (!match) {
-        return { fillColor: "#cbd5e1", weight: 1, opacity: 1, color: "#334155", fillOpacity: 0.3 };
+      // If "Winning Party Only" mode is chosen, return solid base party color
+      if (styleMode === 'winner_only') {
+        return hexColor;
       }
 
-      const total = match.NDP + match.IDP + match.NCP;
-      let pNDP = (match.NDP / (total || 1)) * 100;
-      let pIDP = (match.IDP / (total || 1)) * 100;
-      let pNCP = (match.NCP / (total || 1)) * 100;
+      const intensity = (value - minVal) / (maxVal - minVal || 1);
+      const c = d3.hsl(hexColor);
+      // Replaced lightness domain range [0.85, 0.3] so higher values -> lower lightness (darker color)
+      c.l = d3.scaleLinear().domain([0, 1]).range([0.85, 0.3])(Math.max(0, Math.min(1, intensity)));
+      return c.toString();
+    }
 
-      let winner = 'NDP'; let maxVal = pNDP;
-      if (pIDP > maxVal) { winner = 'IDP'; maxVal = pIDP; }
-      if (pNCP > maxVal) { winner = 'NCP'; maxVal = pNCP; }
+    function getFeatureName(f) {
+      if (!f.properties) return '';
+      // Added County check for Orland GeoJSON format
+      return f.properties.County || f.properties.county || f.properties.name || f.properties.NAME || f.properties.region || f.properties.REGION || f.properties.ADM1_EN || '';
+    }
+
+    // --- MAP RENDERER ---
+    function renderMap() {
+      const svg = d3.select("#map-svg");
+      svg.selectAll("*").remove();
 
       partyColors.NDP = document.getElementById('color-ndp').value;
       partyColors.IDP = document.getElementById('color-idp').value;
       partyColors.NCP = document.getElementById('color-ncp').value;
 
-      const mappingMode = document.getElementById('mapModeDropdown').value;
-      let opacity = 0.85;
-
-      if (mappingMode === 'general') {
-        // Darker / more solid fill for higher vote percentages
-        opacity = 0.35 + ((maxVal / 100) * 0.6);
-      } else {
-        opacity = 0.85; // Solid winning color
+      // Render Title & Footnote
+      const titleText = document.getElementById('map-title-input').value;
+      if (titleText) {
+        svg.append("text").attr("x", 40).attr("y", 50).attr("class", "map-title").text(titleText);
+      }
+      const footnoteText = document.getElementById('map-footnote-input').value;
+      if (footnoteText) {
+        svg.append("text").attr("x", 40).attr("y", 960).attr("class", "map-footnote").text(footnoteText);
       }
 
-      return {
-        fillColor: partyColors[winner],
-        weight: 1.5,
-        opacity: 1,
-        color: "#ffffff",
-        fillOpacity: opacity
-      };
+      if (!geojsonData) {
+        svg.append("text")
+          .attr("x", 500).attr("y", 500)
+          .attr("text-anchor", "middle").attr("fill", "#64748b")
+          .text("Upload a GeoJSON file above to visualize Orland counties & custom regions.");
+        return;
+      }
+
+      const hideUnmatched = document.getElementById('crop-option').value === 'crop';
+      let features = geojsonData.features;
+
+      if (hideUnmatched) {
+        features = features.filter(f => {
+          const name = getFeatureName(f);
+          return parsedData.some(d => d.region.toLowerCase() === name.toLowerCase());
+        });
+      }
+
+      const projection = d3.geoMercator().fitExtent([[60, 80], [940, 800]], { type: "FeatureCollection", features: features });
+      const pathGenerator = d3.geoPath().projection(projection);
+
+      const dataMap = {};
+      parsedData.forEach(d => {
+        const total = d.NDP + d.IDP + d.NCP;
+        const isPercent = document.getElementById('calc-mode').value === 'percent';
+        
+        let pNDP = isPercent ? d.NDP : (total ? (d.NDP / total) * 100 : 0);
+        let pIDP = isPercent ? d.IDP : (total ? (d.IDP / total) * 100 : 0);
+        let pNCP = isPercent ? d.NCP : (total ? (d.NCP / total) * 100 : 0);
+
+        let winner = 'NDP'; let maxVal = pNDP;
+        if (pIDP > maxVal) { winner = 'IDP'; maxVal = pIDP; }
+        if (pNCP > maxVal) { winner = 'NCP'; maxVal = pNCP; }
+
+        dataMap[d.region.toLowerCase()] = { winner, val: maxVal };
+      });
+
+      svg.append("g").selectAll("path")
+        .data(features)
+        .enter()
+        .append("path")
+        .attr("d", pathGenerator)
+        .attr("class", d => dataMap[getFeatureName(d).toLowerCase()] ? "region" : "region region-greyed")
+        .attr("fill", d => {
+          const match = dataMap[getFeatureName(d).toLowerCase()];
+          return match ? getColorShade(partyColors[match.winner], match.val, 30, 100) : "#e2e8f0";
+        });
+
+      renderLegend(svg);
+      renderMagnifiers(svg, pathGenerator, features);
     }
 
-    function renderMap() {
-      if (!geojsonData) return;
+    // --- HORIZONTAL LEGEND ---
+    function renderLegend(svg) {
+      const legendGroup = svg.append("g").attr("transform", "translate(40, 830)");
+      const ranges = document.getElementById('custom-ranges').value.split(',').map(r => r.trim() + '%');
+      const parties = [
+        { name: 'NDP', color: partyColors.NDP },
+        { name: 'IDP', color: partyColors.IDP },
+        { name: 'NCP', color: partyColors.NCP }
+      ];
 
-      if (geojsonLayer) {
-        map.removeLayer(geojsonLayer);
-      }
+      const boxWidth = 35, boxHeight = 18;
 
-      geojsonLayer = L.geoJSON(geojsonData, {
-        style: getCountyStyle,
-        onEachFeature: function(feature, layer) {
-          const cName = feature.properties.County || 'Unknown';
-          const reg = feature.properties.REGION || '';
-          const match = parsedData.find(d => d.county.toLowerCase() === cName.toLowerCase());
+      parties.forEach((party, pIdx) => {
+        const yOffset = pIdx * (boxHeight + 2);
+        
+        legendGroup.append("rect")
+          .attr("x", 0).attr("y", yOffset)
+          .attr("width", 60).attr("height", boxHeight)
+          .attr("fill", party.color);
 
-          let content = `<div style="color:#000;"><b>County:</b> ${cName}<br><b>Region:</b> ${reg}<br>`;
-          if (match) {
-            content += `<hr><b>NDP:</b> ${match.NDP} | <b>IDP:</b> ${match.IDP} | <b>NCP:</b> ${match.NCP}`;
+        legendGroup.append("text")
+          .attr("x", 30).attr("y", yOffset + 13)
+          .attr("text-anchor", "middle").attr("fill", "#ffffff")
+          .attr("class", "party-label").text(party.name);
+
+        ranges.forEach((range, rIdx) => {
+          const shade = getColorShade(party.color, (rIdx / ranges.length) * 100, 0, 100);
+          const xPos = 65 + (rIdx * boxWidth);
+
+          legendGroup.append("rect")
+            .attr("x", xPos).attr("y", yOffset)
+            .attr("width", boxWidth - 1).attr("height", boxHeight)
+            .attr("fill", shade);
+
+          if (pIdx === parties.length - 1) {
+            legendGroup.append("text")
+              .attr("x", xPos + (boxWidth / 2)).attr("y", yOffset + boxHeight + 12)
+              .attr("text-anchor", "middle").attr("class", "range-label").text(range);
           }
-          content += `</div>`;
-          layer.bindPopup(content);
-        }
-      }).addTo(map);
-
-      // Auto-center view directly to Orland boundary coordinates
-      if (geojsonLayer.getBounds().isValid()) {
-        map.fitBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
-      }
+        });
+      });
     }
 
-    // Modal Control Logic
+    // --- MAGNIFIER SYSTEM ---
+    function renderMagnifiers(svg, pathGenerator, features) {
+      magnifiers.forEach((mag) => {
+        const feature = features.find(f => getFeatureName(f).toLowerCase() === mag.region.toLowerCase());
+        if (!feature) return;
+
+        const centroid = pathGenerator.centroid(feature);
+        const boxSize = 100;
+
+        svg.append("line")
+          .attr("x1", centroid[0]).attr("y1", centroid[1])
+          .attr("x2", mag.x).attr("y2", mag.y + (boxSize / 2))
+          .attr("class", "magnify-line");
+
+        svg.append("rect")
+          .attr("x", mag.x).attr("y", mag.y)
+          .attr("width", boxSize).attr("height", boxSize)
+          .attr("class", "magnify-box");
+
+        svg.append("text")
+          .attr("x", mag.x + 50).attr("y", mag.y + 30)
+          .attr("text-anchor", "middle").attr("font-size", "12px").attr("font-weight", "bold")
+          .text(mag.region);
+
+        svg.append("text")
+          .attr("x", mag.x + 50).attr("y", mag.y + 60)
+          .attr("text-anchor", "middle").attr("font-size", "10px").attr("fill", "#0284c7")
+          .text("Magnified View");
+      });
+    }
+
+    function clearMagnifiers() { magnifiers = []; renderMap(); }
+
+    // --- MODERN POPUP MODAL CONTROL ---
+    function openMagnifierModal() {
+      if (magnifiers.length >= 5) {
+        showNotification("Limit Reached", "Maximum 5 magnification boxes allowed.");
+        return;
+      }
+      showModal("Magnify Region", "Enter region name to place an inset box:", true, (regionName) => {
+        if (!regionName) return;
+        magnifiers.push({ region: regionName, x: 750, y: 100 + (magnifiers.length * 130) });
+        renderMap();
+      });
+    }
+
     function openSaveModal() {
-      showModal("Save Session", "Enter session name:", true, (name) => {
+      showModal("Save Session", "Enter a name to save this election dataset:", true, (name) => {
         if (!name) return;
         const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}");
         sessions[name] = {
           parsedData,
           title: document.getElementById('map-title-input').value,
           footnote: document.getElementById('map-footnote-input').value,
+          ranges: document.getElementById('custom-ranges').value,
           colors: { NDP: partyColors.NDP, IDP: partyColors.IDP, NCP: partyColors.NCP }
         };
         localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
@@ -415,8 +581,12 @@
       document.getElementById('modal-desc').innerText = desc;
       const input = document.getElementById('modal-input');
       
-      input.style.display = hasInput ? 'block' : 'none';
-      if (hasInput) input.value = '';
+      if (hasInput) {
+        input.style.display = 'block';
+        input.value = '';
+      } else {
+        input.style.display = 'none';
+      }
 
       const modal = document.getElementById('custom-modal');
       modal.classList.add('active');
@@ -456,6 +626,7 @@
       parsedData = session.parsedData;
       document.getElementById('map-title-input').value = session.title;
       document.getElementById('map-footnote-input').value = session.footnote;
+      document.getElementById('custom-ranges').value = session.ranges;
       
       document.getElementById('color-ndp').value = session.colors.NDP;
       document.getElementById('color-idp').value = session.colors.IDP;
@@ -463,6 +634,36 @@
 
       renderTable();
       renderMap();
+    }
+
+    // --- 4K EXPORT ---
+    function export4KImage() {
+      const svgElement = document.getElementById('map-svg');
+      const xml = new XMLSerializer().serializeToString(svgElement);
+      const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      const URL = window.URL || window.webkitURL || window;
+      const blobURL = URL.createObjectURL(svgBlob);
+
+      const image = new Image();
+      image.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 4000;
+        canvas.height = 4000;
+        const context = canvas.getContext('2d');
+        
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, 4000, 4000);
+
+        const png = canvas.toDataURL('image/png');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = png;
+        downloadLink.download = 'ORLEANALYSIS_4K_Election_Map.png';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+      };
+      image.src = blobURL;
     }
   </script>
 </body>
