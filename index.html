@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <html lang="en">
-<head>
-  <meta charset="UTF-8">
+    <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -192,7 +190,7 @@
         <label>Upload GeoJSON Boundary Map</label>
         <input type="file" id="geojson-file" accept=".geojson,.json,.txt" onchange="handleGeoJSONUpload(event)">
         <label>GeoJSON Entity Field</label>
-        <select id="geojson-field" onchange="renderMap()" disabled>
+        <select id="geojson-field" onchange="populateMagnifierRegions(); renderMap(); saveProjectState()" disabled>
           <option value="">Upload GeoJSON first</option>
         </select>
         <label>GeoJSON Label Field</label>
@@ -231,8 +229,14 @@
           <option value="raw">Raw Population / Votes</option>
         </select>
 
-        <label>Custom Ranges (Comma Separated)</label>
-        <input type="text" id="custom-ranges" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap()">
+        <label>Default Ranges (Comma Separated)</label>
+        <input type="text" id="custom-ranges" value="0, 40, 50, 60, 70, 80, 100" onchange="setDefaultPartyRanges(); renderMap()">
+        <label>NDP Ranges</label>
+        <input type="text" id="ranges-ndp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
+        <label>IDP Ranges</label>
+        <input type="text" id="ranges-idp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
+        <label>NCP Ranges</label>
+        <input type="text" id="ranges-ncp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
 
         <div style="display: flex; gap: 8px;">
           <div><label>NDP</label><input type="color" id="color-ndp" value="#0045A0" onchange="renderMap()"></div>
@@ -301,6 +305,7 @@
     let partyColors = { NDP: '#0045A0', IDP: '#006837', NCP: '#FE5F04' };
     let magnifiers = [];
     let legendOverrides = {};
+    let partyRanges = { NDP: '0, 40, 50, 60, 70, 80, 100', IDP: '0, 40, 50, 60, 70, 80, 100', NCP: '0, 40, 50, 60, 70, 80, 100' };
 
     const SESSIONS_KEY = "ORLE_SESSIONS";
     const PROJECT_STATE_KEY = "ORLE_PROJECT_STATE";
@@ -389,6 +394,7 @@
         title: document.getElementById('map-title-input').value,
         footnote: document.getElementById('map-footnote-input').value,
         ranges: document.getElementById('custom-ranges').value,
+        partyRanges,
         legendWidth: document.getElementById('legend-width').value,
         crop: document.getElementById('crop-option').value,
         calc: document.getElementById('calc-mode').value,
@@ -406,6 +412,8 @@
       document.getElementById('map-title-input').value = state.title || document.getElementById('map-title-input').value;
       document.getElementById('map-footnote-input').value = state.footnote || document.getElementById('map-footnote-input').value;
       document.getElementById('custom-ranges').value = state.ranges || document.getElementById('custom-ranges').value;
+      partyRanges = state.partyRanges || partyRanges;
+      document.getElementById('ranges-ndp').value = partyRanges.NDP; document.getElementById('ranges-idp').value = partyRanges.IDP; document.getElementById('ranges-ncp').value = partyRanges.NCP;
       document.getElementById('legend-width').value = state.legendWidth || 600;
       document.getElementById('crop-option').value = state.crop || 'full'; document.getElementById('calc-mode').value = state.calc || 'percent'; document.getElementById('map-style-mode').value = state.style || 'general';
       if (state.colors) { document.getElementById('color-ndp').value = state.colors.NDP; document.getElementById('color-idp').value = state.colors.IDP; document.getElementById('color-ncp').value = state.colors.NCP; }
@@ -427,6 +435,19 @@
         `;
         tbody.appendChild(tr);
       });
+    }
+
+    function setDefaultPartyRanges() {
+      const value = document.getElementById('custom-ranges').value;
+      partyRanges = { NDP: value, IDP: value, NCP: value };
+      document.getElementById('ranges-ndp').value = value; document.getElementById('ranges-idp').value = value; document.getElementById('ranges-ncp').value = value;
+    }
+
+    function getPartyRanges(party) {
+      const input = document.getElementById(`ranges-${party.toLowerCase()}`);
+      const value = input?.value || partyRanges[party] || document.getElementById('custom-ranges').value;
+      partyRanges[party] = value;
+      return value.split(',').map(r => Number(r.trim())).filter(Number.isFinite).sort((a,b) => a-b);
     }
 
     function updateRowData(index, field, value) {
@@ -471,14 +492,14 @@
       if (fields.length && !entitySelect.value) entitySelect.value = fields[0];
     }
 
-    function updateLegendControls(ranges) {
+    function updateLegendControls() {
       const holder = document.getElementById('legend-controls');
       holder.innerHTML = '<label>Manual Legend Colors</label>';
       ['NDP', 'IDP', 'NCP'].forEach(party => {
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:4px;';
         row.innerHTML = `<small style="width:32px">${party}</small>`;
-        ranges.forEach((range, index) => {
+        getPartyRanges(party).forEach(range => {
           const key = `${party}_${range}`;
           const input = document.createElement('input');
           input.type = 'color'; input.title = `${party} ${range}%`; input.value = legendOverrides[key] || getColorShade(partyColors[party], range, 0, 100);
@@ -495,7 +516,7 @@
     }
 
     function getMapColor(party, value) {
-      const ranges = document.getElementById('custom-ranges').value.split(',').map(r => Number(r.trim())).filter(Number.isFinite).sort((a,b) => a-b);
+      const ranges = getPartyRanges(party);
       let selected = ranges[0] || 0;
       ranges.forEach(range => { if (value >= range) selected = range; });
       const key = `${party}_${selected}`;
@@ -593,9 +614,7 @@
     // --- HORIZONTAL LEGEND ---
     function renderLegend(svg) {
       const legendGroup = svg.append("g").attr("transform", "translate(40, 830)");
-      const rangeValues = document.getElementById('custom-ranges').value.split(',').map(r => Number(r.trim())).filter(Number.isFinite);
-      const ranges = rangeValues.map(r => r + '%');
-      updateLegendControls(rangeValues);
+      const rangeValues = ['NDP', 'IDP', 'NCP'].flatMap(getPartyRanges);
       const parties = [
         { name: 'NDP', color: partyColors.NDP },
         { name: 'IDP', color: partyColors.IDP },
@@ -603,8 +622,9 @@
       ];
 
       const totalWidth = Number(document.getElementById('legend-width').value) || 600;
-      const boxWidth = Math.max(20, (totalWidth - 65) / Math.max(1, rangeValues.length)), boxHeight = 18;
+      const boxWidth = Math.max(20, (totalWidth - 65) / Math.max(1, Math.max(...parties.map(p => getPartyRanges(p.name).length)))), boxHeight = 18;
 
+      updateLegendControls();
       parties.forEach((party, pIdx) => {
         const yOffset = pIdx * (boxHeight + 2);
         
@@ -618,9 +638,11 @@
           .attr("text-anchor", "middle").attr("fill", "#ffffff")
           .attr("class", "party-label").text(party.name);
 
-        ranges.forEach((range, rIdx) => {
-          const key = `${party.name}_${rangeValues[rIdx]}`;
-          const shade = legendOverrides[key] || getColorShade(party.color, rangeValues[rIdx], 0, 100);
+        const partyValues = getPartyRanges(party.name);
+        partyValues.forEach((rangeValue, rIdx) => {
+          const range = rangeValue + '%';
+          const key = `${party.name}_${rangeValue}`;
+          const shade = legendOverrides[key] || getColorShade(party.color, rangeValue, 0, 100);
           const xPos = 65 + (rIdx * boxWidth);
 
           legendGroup.append("rect")
@@ -646,24 +668,17 @@
 
     function renderMagnifiers(svg, pathGenerator, features) {
       magnifiers.forEach((mag, index) => {
-        const feature = features.find(f => getFeatureName(f).toLowerCase() === mag.region.toLowerCase());
+        const feature = features.find(f => getFeatureName(f).toLowerCase() === String(mag.region).toLowerCase());
         if (!feature) return;
-        const centroid = pathGenerator.centroid(feature);
-        const boxSize = 100;
+        const boxSize = 140;
         const position = findMagnifierPosition(pathGenerator, features, index);
         const x = position[0], y = position[1];
-        const clipId = `magnify-clip-${index}`;
-
-        svg.append("defs").append("clipPath").attr("id", clipId).append("rect")
-          .attr("x", x).attr("y", y).attr("width", boxSize).attr("height", boxSize);
-        const inset = svg.append("g").attr("clip-path", `url(#${clipId})`);
-        const insetProjection = d3.geoMercator().fitExtent([[x + 8, y + 8], [x + boxSize - 8, y + boxSize - 8]], feature);
-        inset.append("path").datum(feature).attr("d", d3.geoPath().projection(insetProjection))
-          .attr("fill", "#bae6fd").attr("stroke", "#0f172a").attr("stroke-width", 1);
-
-        svg.append("line").attr("x1", centroid[0]).attr("y1", centroid[1])
-          .attr("x2", x).attr("y2", y + (boxSize / 2)).attr("class", "magnify-line");
-        svg.append("rect").attr("x", x).attr("y", y).attr("width", boxSize).attr("height", boxSize).attr("class", "magnify-box");
+        const centroid = pathGenerator.centroid(feature);
+        const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: [feature] });
+        const insetPath = d3.geoPath().projection(insetProjection);
+        svg.append('rect').attr('x', x).attr('y', y).attr('width', boxSize).attr('height', boxSize).attr('fill', '#ffffff').attr('stroke', '#000000').attr('stroke-width', 1.5);
+        svg.append('path').datum(feature).attr('d', insetPath).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5);
+        svg.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
       });
     }
 
@@ -775,12 +790,10 @@
     function export4KImage() {
       const svgElement = document.getElementById('map-svg');
       const exportSvg = svgElement.cloneNode(true);
-      exportSvg.querySelectorAll('path.region, path.region-greyed').forEach(path => {
-        path.setAttribute('stroke', path.classList.contains('region-greyed') ? '#cbd5e1' : '#ffffff');
-        path.setAttribute('stroke-width', path.classList.contains('region-greyed') ? '0.75' : '0.75');
-        path.setAttribute('vector-effect', 'non-scaling-stroke');
-      });
       exportSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const styleNode = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      styleNode.textContent = '.region { stroke: #ffffff; stroke-width: 0.75px; } .region-greyed { stroke: #cbd5e1; stroke-width: 0.75px; }';
+      exportSvg.insertBefore(styleNode, exportSvg.firstChild);
       const xml = new XMLSerializer().serializeToString(exportSvg);
       const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
       const URL = window.URL || window.webkitURL || window;
