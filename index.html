@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+     <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -385,9 +385,14 @@
       saveProjectState();
     }
 
+    function getStoredGeoJSON() {
+      if (!geojsonData) return null;
+      return { type: 'FeatureCollection', features: geojsonData.features.map(f => ({ type: 'Feature', properties: f.properties || {}, geometry: f.geometry })) };
+    }
+
     function saveProjectState() {
       const state = {
-        geojsonData, parsedData, magnifiers, legendOverrides,
+        geojsonData: getStoredGeoJSON(), parsedData, magnifiers, legendOverrides,
         paste: document.getElementById('paste-input').value,
         entityField: document.getElementById('geojson-field').value,
         labelField: document.getElementById('geojson-label-field').value,
@@ -401,11 +406,16 @@
         style: document.getElementById('map-style-mode').value,
         colors: { NDP: document.getElementById('color-ndp').value, IDP: document.getElementById('color-idp').value, NCP: document.getElementById('color-ncp').value }
       };
-      localStorage.setItem(PROJECT_STATE_KEY, JSON.stringify(state));
+      try {
+        localStorage.setItem(PROJECT_STATE_KEY, JSON.stringify(state));
+      } catch (err) {
+        console.warn('Project state could not be saved to localStorage:', err);
+      }
     }
 
     function loadProjectState() {
-      const state = JSON.parse(localStorage.getItem(PROJECT_STATE_KEY) || 'null');
+      let state;
+      try { state = JSON.parse(localStorage.getItem(PROJECT_STATE_KEY) || 'null'); } catch (err) { return false; }
       if (!state) return false;
       geojsonData = state.geojsonData || null; parsedData = state.parsedData || []; magnifiers = state.magnifiers || []; legendOverrides = state.legendOverrides || {};
       document.getElementById('paste-input').value = state.paste || '';
@@ -520,7 +530,7 @@
       let selected = ranges[0] || 0;
       ranges.forEach(range => { if (value >= range) selected = range; });
       const key = `${party}_${selected}`;
-      return legendOverrides[key] || getColorShade(partyColors[party], selected, 0, 100);
+      return legendOverrides[key] || (selected === ranges[ranges.length - 1] ? partyColors[party] : getColorShade(partyColors[party], selected, 0, 100));
     }
 
     function populateMagnifierRegions() {
@@ -558,7 +568,8 @@
       }
 
       const hideUnmatched = document.getElementById('crop-option').value === 'crop';
-      let features = geojsonData.features.filter(isRenderableFeature);
+      const allFeatures = geojsonData.features.filter(isRenderableFeature);
+      let features = allFeatures.slice();
 
       if (hideUnmatched) {
         features = features.filter(f => {
@@ -608,7 +619,7 @@
       }
 
       renderLegend(svg);
-      renderMagnifiers(svg, pathGenerator, features);
+      renderMagnifiers(svg, pathGenerator, allFeatures);
     }
 
     // --- HORIZONTAL LEGEND ---
@@ -650,7 +661,7 @@
             .attr("width", boxWidth - 1).attr("height", boxHeight)
             .attr("fill", shade);
 
-          if (pIdx === parties.length - 1) {
+          if (pIdx === parties.length - 1 && document.getElementById('map-style-mode').value !== 'winner_only') {
             legendGroup.append("text")
               .attr("x", xPos + (boxWidth / 2)).attr("y", yOffset + boxHeight + 12)
               .attr("text-anchor", "middle").attr("class", "range-label").text(range);
@@ -674,10 +685,17 @@
         const position = findMagnifierPosition(pathGenerator, features, index);
         const x = position[0], y = position[1];
         const centroid = pathGenerator.centroid(feature);
-        const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: [feature] });
-        const insetPath = d3.geoPath().projection(insetProjection);
+        const bounds = pathGenerator.bounds(feature);
+        const width = Math.max(1, bounds[1][0] - bounds[0][0]);
+        const height = Math.max(1, bounds[1][1] - bounds[0][1]);
+        const scale = Math.min((boxSize - 20) / width, (boxSize - 20) / height);
+        const cx = (bounds[0][0] + bounds[1][0]) / 2;
+        const cy = (bounds[0][1] + bounds[1][1]) / 2;
+        const tx = x + boxSize / 2 - cx * scale;
+        const ty = y + boxSize / 2 - cy * scale;
+        const originalPath = pathGenerator(feature);
         svg.append('rect').attr('x', x).attr('y', y).attr('width', boxSize).attr('height', boxSize).attr('fill', '#ffffff').attr('stroke', '#000000').attr('stroke-width', 1.5);
-        svg.append('path').datum(feature).attr('d', insetPath).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5);
+        svg.append('path').attr('d', originalPath).attr('transform', `translate(${tx},${ty}) scale(${scale})`).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5 / scale);
         svg.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
       });
     }
@@ -701,8 +719,8 @@
       showModal("Save Session", "Enter a name to save this election dataset:", true, (name) => {
         if (!name) return;
         const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}");
-        sessions[name] = {
-          geojsonData, parsedData, magnifiers, legendOverrides,
+        sessions[name.trim()] = {
+          geojsonData: getStoredGeoJSON(), parsedData, magnifiers, legendOverrides, partyRanges,
           title: document.getElementById('map-title-input').value,
           footnote: document.getElementById('map-footnote-input').value,
           ranges: document.getElementById('custom-ranges').value,
@@ -711,10 +729,14 @@
           labelField: document.getElementById('geojson-label-field').value,
           colors: { NDP: document.getElementById('color-ndp').value, IDP: document.getElementById('color-idp').value, NCP: document.getElementById('color-ncp').value }
         };
-        localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
-        updateSavedSessionsDropdown();
-        saveProjectState();
-        showNotification("Saved", "Election session saved locally.");
+        try {
+          localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+          updateSavedSessionsDropdown();
+          saveProjectState();
+          showNotification("Saved", "Election session saved locally.");
+        } catch (err) {
+          showNotification("Save Error", "The browser localStorage limit was reached. Try saving after removing older sessions or using a smaller GeoJSON file.");
+        }
       });
     }
 
@@ -769,6 +791,8 @@
       parsedData = session.parsedData || [];
       magnifiers = session.magnifiers || [];
       legendOverrides = session.legendOverrides || {};
+      partyRanges = session.partyRanges || partyRanges;
+      document.getElementById('ranges-ndp').value = partyRanges.NDP; document.getElementById('ranges-idp').value = partyRanges.IDP; document.getElementById('ranges-ncp').value = partyRanges.NCP;
       if (geojsonData) { populateGeoJSONFields(); populateMagnifierRegions(); }
       document.getElementById('map-title-input').value = session.title;
       document.getElementById('map-footnote-input').value = session.footnote;
@@ -781,6 +805,7 @@
       document.getElementById('color-idp').value = session.colors.IDP;
       document.getElementById('color-ncp').value = session.colors.NCP;
       populateMagnifierRegions();
+      saveProjectState();
 
       renderTable();
       renderMap();
