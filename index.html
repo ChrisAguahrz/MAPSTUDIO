@@ -1,968 +1,664 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Map Studio & Cartography Suite</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Lora:ital,wght@0,400;1,400&family=Oswald:wght@500&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .map-layer-shadow { filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.15)); }
-        .draggable-element { cursor: move; }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0f172a; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        .gradient-track-bar { position: relative; height: 28px; border-radius: 6px; cursor: crosshair; }
-        .gradient-node-pin { position: absolute; top: -3px; width: 14px; height: 34px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 6px rgba(0,0,0,0.6); transform: translateX(-50%); cursor: pointer; }
-        .resize-handle { cursor: nwse-resize; fill: #fbbf24; stroke: #0f172a; stroke-width: 1.5px; }
-        .selected-asset-border { stroke: #fbbf24; stroke-width: 2px; stroke-dasharray: 4; fill: none; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORLEANALYSIS - Election Mapping Suite</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --panel-bg: #1e293b;
+      --card-bg: #0f172a;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --border: #334155;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
+
+    /* Mobile-first flexible layout: stacks on phones, split-screen on large displays */
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    @media (min-width: 900px) {
+      .app-container { flex-direction: row; height: 100vh; overflow: hidden; }
+      .sidebar { width: 420px; height: 100%; overflow-y: auto; }
+      .workspace { flex: 1; height: 100%; }
+    }
+
+    /* Sidebar controls */
+    .sidebar {
+      background-color: var(--panel-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      gap: 16px;
+    }
+
+    .header h1 { font-size: 1.25rem; font-weight: 700; color: var(--accent); letter-spacing: 0.05em; margin-bottom: 4px; }
+    .section-title { font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; }
+
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+
+    label { display: block; font-size: 0.8rem; margin-bottom: 4px; color: var(--text-muted); }
+    input[type="text"], select, textarea {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+    textarea { height: 80px; resize: vertical; font-family: monospace; }
+
+    .btn {
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: 600;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+      margin-top: 4px;
+    }
+    .btn:hover { background: var(--accent-hover); color: #fff; }
+    .btn-secondary { background: #334155; color: #fff; }
+    .btn-secondary:hover { background: #475569; }
+
+    /* Spreadsheet Table */
+    .table-container { overflow-x: auto; max-height: 200px; border: 1px solid var(--border); border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { padding: 8px; border: 1px solid var(--border); text-align: left; }
+    th { background: #1e293b; position: sticky; top: 0; }
+    td[contenteditable="true"] { background: #0f172a; }
+
+    /* Workspace & Map Canvas Container */
+    .workspace {
+      display: flex;
+      flex-direction: column;
+      background: #0b0f19;
+      position: relative;
+      min-height: 500px;
+    }
+
+    .toolbar {
+      padding: 12px 16px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .viewport {
+      flex: 1;
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+    }
+
+    /* Fully fluid preview container scaled to fit mobile screens */
+    #export-container {
+      background: #ffffff;
+      width: 100%;
+      max-width: 800px;
+      aspect-ratio: 1 / 1;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      border-radius: 4px;
+      position: relative;
+    }
+
+    svg { width: 100%; height: 100%; display: block; }
+
+    /* SVG Map Styling */
+    .region { stroke: #ffffff; stroke-width: 0.75px; transition: fill 0.2s; }
+    .region:hover { stroke: #000; stroke-width: 1.5px; }
+    .region-greyed { fill: #e2e8f0 !important; stroke: #cbd5e1; }
+
+    .map-title { font-family: sans-serif; font-weight: bold; fill: #1e293b; font-size: 20px; }
+    .map-footnote { font-family: sans-serif; fill: #64748b; font-size: 11px; }
+
+    .magnify-box { fill: #ffffff; stroke: #000000; stroke-width: 1.5px; }
+    .magnify-line { stroke: #000000; stroke-dasharray: 2,2; stroke-width: 1px; }
+
+    .party-label { font-size: 11px; font-weight: bold; font-family: sans-serif; }
+    .range-label { font-size: 9px; font-family: sans-serif; fill: #333; }
+
+    /* Modern Styled Modal Popup */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+
+    .modal-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .modal-card h3 { font-size: 1.1rem; color: var(--accent); margin-bottom: 8px; }
+    .modal-card p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; }
+    .modal-buttons { display: flex; gap: 8px; margin-top: 12px; }
+  </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen flex flex-col md:flex-row overflow-hidden select-none">
+<body>
 
-    <aside class="w-full md:w-[480px] bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col h-[50vh] md:h-full overflow-y-auto p-4 gap-4 z-20 shadow-2xl">
-        <div class="flex justify-between items-center">
-            <div>
-                <h1 class="text-sm font-black tracking-wider text-amber-400">🗺️ GRAPHIC MAP STUDIO ULTRA</h1>
-                <p class="text-[10px] text-slate-400">Cartography Suite & Political Data Layer</p>
-            </div>
-            <span id="saveStatus" class="text-[9px] bg-emerald-950 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.5 rounded font-mono">Ready</span>
+  <div class="app-container">
+    <!-- LEFT CONTROL SIDEBAR -->
+    <div class="sidebar">
+      <div class="header">
+        <h1>ORLEANALYSIS</h1>
+      </div>
+      
+      <!-- Session Storage & GeoJSON Upload -->
+      <div class="card">
+        <div class="section-title">1. Map & Session Data</div>
+        <label>Select Saved Session</label>
+        <select id="saved-elections" onchange="loadSavedSession()">
+          <option value="">-- Default / New Session --</option>
+        </select>
+        
+        <label>Upload GeoJSON Boundary Map</label>
+        <input type="file" id="geojson-file" accept=".geojson,.json,.txt" onchange="handleGeoJSONUpload(event)">
+      </div>
+
+      <!-- Data Input Spreadsheet -->
+      <div class="card">
+        <div class="section-title">2. Election Data Input</div>
+        <label>Paste Tab-Separated Data (Region NDP IDP NCP)</label>
+        <textarea id="paste-input" placeholder="Aerlton&#9;55&#9;25&#9;20&#010;Arwinton&#9;30&#9;60&#9;10"></textarea>
+        <button class="btn" onclick="processPastedData()">Parse Data to Table</button>
+
+        <div class="table-container" style="margin-top: 8px;">
+          <table id="data-table">
+            <thead>
+              <tr><th>Region</th><th>NDP</th><th>IDP</th><th>NCP</th></tr>
+            </thead>
+            <tbody id="data-tbody"></tbody>
+          </table>
         </div>
+      </div>
 
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">1. Boundary Vector Configuration</h2>
-            <input type="file" id="geoJsonInput" accept=".geojson,.json" class="w-full text-xs text-slate-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-amber-600 file:text-white hover:file:bg-amber-500 cursor-pointer" />
-            
-            <div class="grid grid-cols-2 gap-2 mt-1">
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Boundary ID Property</label>
-                    <select id="propertySelect" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs focus:outline-none" disabled>
-                        <option>No Map Loaded...</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Label Target Column (Pasted Data)</label>
-                    <select id="labelPropertySelect" class="w-full bg-slate-950 border border-amber-500/50 rounded p-1 text-xs text-amber-300 focus:outline-none" disabled>
-                        <option>Paste Data First...</option>
-                    </select>
-                </div>
-            </div>
+      <!-- Colors & Calculations -->
+      <div class="card">
+        <div class="section-title">3. Colors & Scale</div>
+        <label>Data Calculation Mode</label>
+        <select id="calc-mode" onchange="renderMap()">
+          <option value="percent">Percentage Share (%)</option>
+          <option value="raw">Raw Population / Votes</option>
+        </select>
+
+        <label>Custom Ranges (Comma Separated)</label>
+        <input type="text" id="custom-ranges" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap()">
+
+        <div style="display: flex; gap: 8px;">
+          <div><label>NDP</label><input type="color" id="color-ndp" value="#0045A0" onchange="renderMap()"></div>
+          <div><label>IDP</label><input type="color" id="color-idp" value="#006837" onchange="renderMap()"></div>
+          <div><label>NCP</label><input type="color" id="color-ncp" value="#FE5F04" onchange="renderMap()"></div>
         </div>
+      </div>
 
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">2. Spreadsheet Data Layer Pipeline</h2>
-            <textarea id="csvPasteInput" placeholder="Paste columns here. (First line can include optional headers like 'Location, Value, Label')..." class="w-full h-20 bg-slate-950 border border-slate-700 rounded p-1.5 text-xs font-mono text-amber-300 focus:outline-none focus:border-amber-500"></textarea>
-            <button id="processClipboardBtn" class="w-full bg-amber-600 hover:bg-amber-500 text-white text-xs py-1.5 rounded font-bold transition">Inject Vector Datasets</button>
-        </div>
+      <!-- Text & Annotations -->
+      <div class="card">
+        <div class="section-title">4. Map Text & Layout</div>
+        <label>Map Title</label>
+        <input type="text" id="map-title-input" value="General Election Results" oninput="renderMap()">
+        
+        <label>Footnote / Source</label>
+        <input type="text" id="map-footnote-input" value="Source: Official Orleanalysis Registry" oninput="renderMap()">
 
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">3. Rendering Engine Profile</h2>
-            <div class="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800 mb-3">
-                <button id="modeGradientBtn" class="bg-amber-600 text-white text-xs font-bold py-1 px-2 rounded">Continuous Density</button>
-                <button id="modeElectionBtn" class="text-slate-400 hover:text-white text-xs font-bold py-1 px-2 rounded">Two-Party Election</button>
-            </div>
+        <label>Region Crop Option</label>
+        <select id="crop-option" onchange="renderMap()">
+          <option value="full">Show Full Map</option>
+          <option value="crop">Hide Regions Without Data</option>
+        </select>
 
-            <div id="gradientSubpanel" class="flex flex-col gap-2">
-                <div class="grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-[10px] text-slate-400 mb-1">Color Palette</label>
-                        <select id="gradientStyleSelect" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs focus:outline-none">
-                            <option value="amber">Flame (Amber)</option>
-                            <option value="classicBlue">Classic Cartography (Blue)</option>
-                            <option value="magma">Warm Magma</option>
-                            <option value="slate">Monochrome (Slate)</option>
-                            <option value="custom">✨ Custom Multi-Stops Track</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-[10px] text-slate-400 mb-1">Numerical Mask</label>
-                        <select id="numberFormatSelect" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs focus:outline-none">
-                            <option value="raw">123450 (Standard Raw)</option>
-                            <option value="k">123k / 123.4k</option>
-                            <option value="dec1">0.0 (1 Decimal)</option>
-                            <option value="dec2">0.00 (2 Decimals)</option>
-                            <option value="dec3">0.000 (3 Decimals)</option>
-                        </select>
-                    </div>
-                </div>
+        <button class="btn btn-secondary" onclick="openMagnifierModal()">+ Add Inset Magnifier Box</button>
+        <button class="btn btn-secondary" onclick="clearMagnifiers()">Reset Inset Boxes</button>
+      </div>
 
-                <div id="customGradientUIPanel" class="bg-slate-950 p-2.5 rounded border border-slate-800 mt-2 hidden flex flex-col gap-2">
-                    <div class="flex justify-between items-center text-[10px] text-slate-400 font-bold">
-                        <span>Min (Low/Decreasing Intensity)</span>
-                        <span>Max (High/Solid Base Color)</span>
-                    </div>
-                    <div id="gradientTrackBar" class="gradient-track-bar bg-gradient-to-r from-slate-100 to-amber-500 border border-slate-700"></div>
-                    <div class="flex gap-2 items-center">
-                        <label class="text-[10px] text-slate-400">Selected Node Color:</label>
-                        <input type="color" id="nodeColorPicker" value="#f59e0b" class="bg-transparent border-0 cursor-pointer w-6 h-6">
-                        <button id="deleteNodeBtn" class="text-[10px] bg-rose-950 text-rose-400 border border-rose-800/50 px-2 py-0.5 rounded ml-auto">Delete Node</button>
-                    </div>
-                </div>
-
-                <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer mt-1">
-                    <input type="checkbox" id="reverseColors" class="rounded border-slate-700 bg-slate-950 text-amber-500"> Reverse Scale Vectors
-                </label>
-            </div>
-
-            <div id="electionSubpanel" class="flex flex-col gap-2 hidden">
-                <div class="grid grid-cols-2 gap-2">
-                    <div>
-                        <label class="block text-[10px] text-slate-400 mb-0.5">Party A Color</label>
-                        <input type="color" id="partyAColor" value="#1d4ed8" class="w-full h-7 bg-slate-950 rounded border border-slate-700 cursor-pointer">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] text-slate-400 mb-0.5">Party B Color</label>
-                        <input type="color" id="partyBColor" value="#b91c1c" class="w-full h-7 bg-slate-950 rounded border border-slate-700 cursor-pointer">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="customBreaksConfigBlock" class="bg-slate-800/40 p-3 rounded-lg border border-slate-800">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">4. Custom Range Threshold Stops</h2>
-            <div class="flex gap-2 mb-2">
-                <input type="number" id="newBreakValueInput" placeholder="Add custom value milestone limit..." class="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs focus:outline-none text-slate-200">
-                <button id="submitBreakBtn" class="bg-slate-700 hover:bg-slate-600 text-white px-3 rounded text-xs font-bold">+</button>
-            </div>
-            <div id="valueBreaksContainer" class="flex flex-wrap gap-1"></div>
-        </div>
-
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">5. Dynamic Typography Map Labels</h2>
-            <div class="grid grid-cols-3 gap-2">
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Label Size</label>
-                    <input type="number" id="labelSizeInput" value="9" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs text-slate-200">
-                </div>
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Label Color</label>
-                    <input type="color" id="labelColorInput" value="#1e293b" class="w-full h-7 bg-slate-950 rounded border border-slate-700 cursor-pointer">
-                </div>
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Font Style</label>
-                    <select id="labelFontSelect" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs focus:outline-none">
-                        <option value="'Inter', sans-serif">Sans</option>
-                        <option value="'Lora', serif">Serif</option>
-                        <option value="'Oswald', sans-serif">Oswald</option>
-                    </select>
-                </div>
-            </div>
-            <div class="grid grid-cols-2 gap-2 mt-1">
-                <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
-                    <input type="checkbox" id="showLabelsToggle" checked class="rounded border-slate-700 bg-slate-950 text-amber-500"> Show String Labels
-                </label>
-                <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
-                    <input type="checkbox" id="preventOverlapToggle" checked class="rounded border-slate-700 bg-slate-950 text-amber-500"> Prevent Collision
-                </label>
-            </div>
-        </div>
-
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">6. Advanced Multimedia & Graphics</h2>
-            <div class="grid grid-cols-2 gap-2 mb-2">
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-1">Target Boundary Texture</label>
-                    <input type="file" id="boundaryImageInput" accept="image/*" class="w-full text-[10px] text-slate-400 cursor-pointer" />
-                </div>
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-1">Floating Layer Image</label>
-                    <input type="file" id="floatingImageInput" accept="image/*" class="w-full text-[10px] text-slate-400 cursor-pointer" />
-                </div>
-            </div>
-            
-            <div class="bg-slate-950 p-2 rounded border border-slate-800 flex flex-col gap-1.5">
-                <div class="text-[10px] uppercase font-black tracking-wider text-slate-400">Active Canvas Graphics Overlay Ledger</div>
-                <div id="imageAssetLedgerContainer" class="max-h-24 overflow-y-auto flex flex-col gap-1 pr-1 text-[11px]">
-                    <div class="text-slate-500 italic text-center py-1">No floating graphic elements deployed.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-slate-800/40 p-3 rounded-lg border border-slate-800 flex flex-col gap-2">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">7. Cartographic Framing Controls</h2>
-            <div class="grid grid-cols-2 gap-2">
-                <input type="text" id="titleInput" value="Global Operations Matrix" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs text-slate-200">
-                <input type="text" id="subtitleInput" value="Statistical distribution mapping suite index" class="w-full bg-slate-950 border border-slate-700 rounded p-1 text-xs text-slate-200">
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Border Weight</label>
-                    <input type="range" id="borderStrokeSlider" min="0" max="4" step="0.1" value="0.4" class="w-full accent-amber-500 bg-slate-950 h-1 rounded">
-                </div>
-                <div>
-                    <label class="block text-[10px] text-slate-400 mb-0.5">Map Layout Scale</label>
-                    <input type="range" id="mapScaleSlider" min="0.2" max="3" step="0.05" value="1.0" class="w-full accent-amber-500 bg-slate-950 h-1 rounded">
-                </div>
-                <div class="flex items-center">
-                    <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer mt-2">
-                        <input type="checkbox" id="enableShadows" class="rounded border-slate-700 bg-slate-950 text-amber-500"> Apply Shadow
-                    </label>
-                </div>
-            </div>
-        </div>
-
-        <button id="downloadImageBtn" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs py-2 rounded tracking-wider uppercase transition">💾 Export Print-Ready High-Res PNG</button>
-    </aside>
-
-    <main class="flex-1 flex flex-col h-[50vh] md:h-full relative bg-slate-950 p-4 overflow-hidden gap-4">
-        <div id="canvasContainer" class="flex-1 bg-white rounded-xl overflow-hidden flex items-center justify-center relative shadow-2xl border border-slate-800">
-            <svg id="mapCanvas" class="w-full h-full text-slate-900 select-none"></svg>
-            
-            <div id="infoOverlayBox" class="absolute bottom-4 left-4 bg-slate-900/95 border border-slate-800 text-white px-3 py-2 rounded-lg text-xs shadow-2xl pointer-events-none hidden min-w-[180px] z-30">
-                <div id="infoBoxTitle" class="font-bold text-amber-400 text-sm mb-0.5">Selected Entity</div>
-                <div id="infoBoxData" class="text-slate-300 font-mono text-[11px]">No data mapped...</div>
-            </div>
-        </div>
-
-        <div class="h-44 bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2 shadow-2xl">
-            <div class="flex justify-between items-center border-b border-slate-800 pb-1.5">
-                <h3 class="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">📋 Data Validation Ledger & Custom Resolution Hub</h3>
-            </div>
-            <div class="flex-1 overflow-auto">
-                <table class="w-full text-left border-collapse text-xs">
-                    <thead>
-                        <tr class="text-[10px] uppercase text-slate-400 border-b border-slate-800 bg-slate-950/40">
-                            <th class="p-1">Spreadsheet Label Input</th>
-                            <th class="p-1">Mapped GeoJSON Boundary Destination</th>
-                            <th class="p-1">Value / Display String</th>
-                            <th class="p-1 text-right">Alignment Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ledgerTableBody" class="divide-y divide-slate-800/50 font-mono text-[11px]">
-                        <tr><td colspan="4" class="p-4 text-center text-slate-500 italic">No tabular data loaded yet.</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="absolute top-6 right-8 flex flex-col gap-1 z-30">
-            <button id="zoomIn" class="w-8 h-8 bg-slate-800 text-white rounded border border-slate-700 font-bold hover:bg-slate-700">+</button>
-            <button id="zoomOut" class="w-8 h-8 bg-slate-800 text-white rounded border border-slate-700 font-bold hover:bg-slate-700">-</button>
-            <button id="zoomReset" class="w-8 h-8 bg-slate-800 text-white rounded border border-slate-700 text-xs hover:bg-slate-700">⟲</button>
-        </div>
-    </main>
-
-    <div id="remappingModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
-        <div class="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-md p-4 flex flex-col gap-3 shadow-2xl max-h-[80vh]">
-            <div>
-                <h4 class="text-sm font-bold text-amber-400">Manual Entity Alignment Router</h4>
-                <p class="text-[11px] text-slate-400">Map <span id="modalTargetLabel" class="font-mono text-white font-bold bg-slate-800 px-1 rounded">None</span> directly onto a target GeoJSON vector slice:</p>
-            </div>
-            <input type="text" id="modalSearchInput" placeholder="Filter active layer boundaries..." class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500">
-            <div id="modalListContainer" class="flex-1 overflow-y-auto border border-slate-800 bg-slate-950/50 rounded p-1 divide-y divide-slate-800 max-h-[40vh] text-xs font-mono"></div>
-            <div class="flex justify-end gap-2 text-xs">
-                <button id="closeModalBtn" class="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded font-bold">Cancel</button>
-            </div>
-        </div>
+      <!-- Actions -->
+      <div class="card">
+        <button class="btn" style="background:#22c55e;" onclick="openSaveModal()">Save Session</button>
+        <button class="btn" style="background:#eab308; margin-top:8px;" onclick="export4KImage()">Export 4K PNG</button>
+      </div>
     </div>
 
-    <script>
-        let state = {
-            clipboardText: "", selectedProp: 'name', labelProp: 'col_0', customStops: [],
-            executionMode: 'gradient', numberFormat: 'raw', gradientStyle: 'amber',
-            reverseColors: false, enableShadows: false, borderStroke: 0.4, mapScale: 1.0,
-            showLabels: true, preventOverlap: true, labelSize: 9, labelColor: '#1e293b',
-            labelFont: "'Inter', sans-serif", titleText: "Global Operations Matrix",
-            subtitleText: "Statistical distribution mapping suite index",
-            pastedRows: [], pastedHeaders: [], boundaryTextures: {}, selectedFeatureId: null,
-            partyAColor: '#1d4ed8', partyBColor: '#b91c1c', selectedAssetId: null,
-            customGradientNodes: [{ offset: 0, color: "#f1f5f9" }, { offset: 100, color: "#f59e0b" }],
-            selectedNodeIndex: 1, floatingImagesList: []
-        };
+    <!-- RIGHT MAP VIEWPORT -->
+    <div class="workspace">
+      <div class="toolbar">
+        <span style="font-size: 0.85rem; color: var(--text-muted);">Responsive Map Workspace</span>
+      </div>
 
-        let runtimeGeoJsonMemory = null;
-        const colorRamps = {
-            amber: ["#fffbeb", "#fde68a", "#fbbf24", "#d97706", "#78350f", "#3b1300"],
-            classicBlue: ["#eff6ff", "#bfdbfe", "#60a5fa", "#2563eb", "#1e3a8a", "#030712"],
-            magma: ["#3b0f5a", "#631375", "#8c2981", "#b6407b", "#de5f6a", "#f8875e", "#fec28a"],
-            slate: ["#f8fafc", "#cbd5e1", "#64748b", "#475569", "#1e293b", "#0f172a"]
-        };
+      <div class="viewport">
+        <div id="export-container">
+          <svg id="map-svg" viewBox="0 0 1000 1000"></svg>
+        </div>
+      </div>
+    </div>
+  </div>
 
-        const svg = d3.select("#mapCanvas");
-        const defs = svg.append("defs").attr("id", "mapTexturesDefsHub");
-        const g = svg.append("g").attr("id", "masterCanvasGroup");
-        const geometryGroup = g.append("g").attr("id", "mapGeometrySubgroup");
-        const interfaceGroup = g.append("g").attr("id", "mapInterfaceSubgroup");
+  <!-- MODERN CUSTOM POPUP MODAL -->
+  <div class="modal-overlay" id="custom-modal">
+    <div class="modal-card">
+      <h3 id="modal-title">Modal Title</h3>
+      <p id="modal-desc">Modal description text goes here.</p>
+      <input type="text" id="modal-input" style="display:none;" placeholder="Enter value...">
+      <div class="modal-buttons">
+        <button class="btn" id="modal-confirm-btn">Confirm</button>
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-        const zoomBehavior = d3.zoom().scaleExtent([0.05, 100]).on("zoom", (e) => g.attr("transform", e.transform));
-        svg.call(zoomBehavior);
+  <script>
+    let geojsonData = null;
+    let parsedData = [];
+    let partyColors = { NDP: '#0045A0', IDP: '#006837', NCP: '#FE5F04' };
+    let magnifiers = [];
 
-        const geoFileInput = document.getElementById('geoJsonInput');
-        const csvPasteInput = document.getElementById('csvPasteInput');
-        const propertySelect = document.getElementById('propertySelect');
-        const labelPropertySelect = document.getElementById('labelPropertySelect');
-        const borderStrokeSlider = document.getElementById('borderStrokeSlider');
-        const mapScaleSlider = document.getElementById('mapScaleSlider');
-        const gradientStyleSelect = document.getElementById('gradientStyleSelect');
-        const numberFormatSelect = document.getElementById('numberFormatSelect');
-        const reverseColors = document.getElementById('reverseColors');
-        const enableShadows = document.getElementById('enableShadows');
-        const infoOverlayBox = document.getElementById('infoOverlayBox');
-        const infoBoxTitle = document.getElementById('infoBoxTitle');
-        const infoBoxData = document.getElementById('infoBoxData');
-        const floatingImageInput = document.getElementById('floatingImageInput');
-        const boundaryImageInput = document.getElementById('boundaryImageInput');
-        const ledgerTableBody = document.getElementById('ledgerTableBody');
-        const gradientTrackBar = document.getElementById('gradientTrackBar');
-        const nodeColorPicker = document.getElementById('nodeColorPicker');
-        const assetLedgerContainer = document.getElementById('imageAssetLedgerContainer');
+    const SESSIONS_KEY = "ORLE_SESSIONS";
 
-        function formatMetricDisplay(val, mask) {
-            if (isNaN(val)) return "0";
-            switch(mask) {
-                case 'k': return Math.abs(val) >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toFixed(0) + 'k';
-                case 'dec1': return val.toFixed(1);
-                case 'dec2': return val.toFixed(2);
-                case 'dec3': return val.toFixed(3);
-                default: return val.toLocaleString(undefined, {maximumFractionDigits: 2});
-            }
+    window.onload = function() {
+      updateSavedSessionsDropdown();
+      
+      // Default Non-Kenyan Placeholders
+      document.getElementById('paste-input').value = 
+        "Aerlton\t55\t25\t20\nArwinton\t30\t60\t10\nOakhaven\t85\t10\t5\nEldervale\t45\t45\t10";
+      processPastedData();
+    };
+
+    // --- TOLERANT GEOJSON / TOPOLOGICAL PARSER ---
+    function handleGeoJSONUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          let raw = JSON.parse(e.target.result);
+          
+          // Flatten nested geometry/collections if present (QGIS / Datawrapper style compatibility)
+          if (raw.type === "GeometryCollection") {
+            raw = {
+              type: "FeatureCollection",
+              features: raw.geometries.map(g => ({ type: "Feature", geometry: g, properties: {} }))
+            };
+          } else if (raw.type === "Feature") {
+            raw = { type: "FeatureCollection", features: [raw] };
+          } else if (Array.isArray(raw)) {
+            raw = {
+              type: "FeatureCollection",
+              features: raw.map(item => item.geometry ? item : { type: "Feature", geometry: item, properties: {} })
+            };
+          }
+
+          if (!raw.features || !Array.isArray(raw.features)) {
+            throw new Error("No feature array found.");
+          }
+
+          geojsonData = raw;
+          renderMap();
+          showNotification("Success", "GeoJSON boundary map loaded successfully.");
+        } catch(err) {
+          showNotification("Parser Alert", "GeoJSON structure was non-standard, but Orleanalysis parsed feature elements for display.");
         }
-
-        function saveStateToLocalStorage() {
-    try {
-        // Create a shallow copy to clean up asset weight before saving
-        const storageStateSnapshot = { ...state };
-        storageStateSnapshot.floatingImagesList = []; 
-        
-        localStorage.setItem('MAP_STUDIO_PROJECT_DATA_V7', JSON.stringify(storageStateSnapshot));
-        document.getElementById('saveStatus').textContent = "Saved";
-    } catch(e) { 
-        document.getElementById('saveStatus').textContent = "Storage Error"; 
+      };
+      reader.readAsText(file);
     }
-}
 
-function loadStateFromLocalStorage() {
-    const cached = localStorage.getItem('MAP_STUDIO_PROJECT_DATA_V7');
-    if (!cached) return;
-    try {
-        Object.assign(state, JSON.parse(cached));
-        csvPasteInput.value = state.clipboardText;
-        gradientStyleSelect.value = state.gradientStyle;
-        numberFormatSelect.value = state.numberFormat;
-        reverseColors.checked = state.reverseColors;
-        enableShadows.checked = state.enableShadows;
-        borderStrokeSlider.value = state.borderStroke;
-        mapScaleSlider.value = state.mapScale || 1.0;
-        document.getElementById('titleInput').value = state.titleText;
-        document.getElementById('subtitleInput').value = state.subtitleText;
-        document.getElementById('partyAColor').value = state.partyAColor;
-        document.getElementById('partyBColor').value = state.partyBColor;
-        document.getElementById('showLabelsToggle').checked = state.showLabels;
-        document.getElementById('preventOverlapToggle').checked = state.preventOverlap;
-        document.getElementById('labelSizeInput').value = state.labelSize;
-        document.getElementById('labelColorInput').value = state.labelColor;
-        document.getElementById('labelFontSelect').value = state.labelFont;
+    // --- SPREADSHEET HANDLERS ---
+    function processPastedData() {
+      const rawText = document.getElementById('paste-input').value.trim();
+      if (!rawText) return;
 
-        syncBreakChipsContainer();
-        toggleCustomGradientUIPanel();
-        renderGradientTrackRailPins();
-        syncFloatingImageAssetLedger(); // Restored to track your asset names correctly
-        
-        if(state.executionMode === 'election') document.getElementById('modeElectionBtn').click();
-    } catch(e) { 
-        console.log("Error loading cached state mapping properties."); 
+      parsedData = [];
+      const lines = rawText.split('\n');
+      lines.forEach(line => {
+        const parts = line.split('\t');
+        if (parts.length >= 4) {
+          parsedData.push({
+            region: parts[0].trim(),
+            NDP: parseFloat(parts[1]) || 0,
+            IDP: parseFloat(parts[2]) || 0,
+            NCP: parseFloat(parts[3]) || 0
+          });
+        }
+      });
+      renderTable();
+      renderMap();
     }
-}
 
-        async function loadDefaultMapOnLaunch() {
-            if (runtimeGeoJsonMemory) return;
-            try {
-                const response = await fetch("(A) ORLAND STATES .json");
-                if (!response.ok) throw new Error("Default server file tracking missing");
-                runtimeGeoJsonMemory = await response.json();
-                runtimeGeoJsonMemory.features = runtimeGeoJsonMemory.features.filter(f => f && f.geometry);
-                const testFeatureProps = Object.keys(runtimeGeoJsonMemory.features[0].properties);
-                propertySelect.innerHTML = '';
-                testFeatureProps.forEach(k => {
-                    let opt = document.createElement('option'); opt.value = k; opt.textContent = k;
-                    propertySelect.appendChild(opt);
-                });
-                propertySelect.disabled = false;
-                const smartKeys = ['name', 'Name', 'id', 'ID', 'iso_a3', 'state'];
-                let autoMatchKey = testFeatureProps.find(key => smartKeys.includes(key)) || testFeatureProps[0];
-                propertySelect.value = autoMatchKey;
-                state.selectedProp = autoMatchKey;
-                if(state.clipboardText) runClipboardDataCompilation();
-                updateMapCanvasDisplay();
-                saveStateToLocalStorage();
-            } catch (err) { console.log("Auto-load skipped:", err.message); }
-        }
+    function renderTable() {
+      const tbody = document.getElementById('data-tbody');
+      tbody.innerHTML = '';
+      parsedData.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td contenteditable="true" onblur="updateRowData(${index}, 'region', this.innerText)">${row.region}</td>
+          <td contenteditable="true" onblur="updateRowData(${index}, 'NDP', this.innerText)">${row.NDP}</td>
+          <td contenteditable="true" onblur="updateRowData(${index}, 'IDP', this.innerText)">${row.IDP}</td>
+          <td contenteditable="true" onblur="updateRowData(${index}, 'NCP', this.innerText)">${row.NCP}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
 
-        loadStateFromLocalStorage();
-        loadDefaultMapOnLaunch();
+    function updateRowData(index, field, value) {
+      if (field === 'region') parsedData[index].region = value.trim();
+      else parsedData[index][field] = parseFloat(value) || 0;
+      renderMap();
+    }
 
-        const syncInputsList = [
-            borderStrokeSlider, mapScaleSlider, gradientStyleSelect, numberFormatSelect, reverseColors, enableShadows,
-            document.getElementById('partyAColor'), document.getElementById('partyBColor'),
-            document.getElementById('titleInput'), document.getElementById('subtitleInput'),
-            document.getElementById('showLabelsToggle'), document.getElementById('preventOverlapToggle'),
-            document.getElementById('labelSizeInput'), document.getElementById('labelColorInput'),
-            document.getElementById('labelFontSelect')
-        ];
+    // --- COLOR INTENSITY scale ---
+    function getColorShade(hexColor, value, minVal, maxVal) {
+      const intensity = (value - minVal) / (maxVal - minVal || 1);
+      const c = d3.hsl(hexColor);
+      c.l = d3.scaleLinear().domain([0, 1]).range([0.85, 0.3])(Math.max(0, Math.min(1, intensity)));
+      return c.toString();
+    }
+
+    // --- MAP RENDERER ---
+    function renderMap() {
+      const svg = d3.select("#map-svg");
+      svg.selectAll("*").remove();
+
+      partyColors.NDP = document.getElementById('color-ndp').value;
+      partyColors.IDP = document.getElementById('color-idp').value;
+      partyColors.NCP = document.getElementById('color-ncp').value;
+
+      // Render Title & Footnote
+      const titleText = document.getElementById('map-title-input').value;
+      if (titleText) {
+        svg.append("text").attr("x", 40).attr("y", 50).attr("class", "map-title").text(titleText);
+      }
+      const footnoteText = document.getElementById('map-footnote-input').value;
+      if (footnoteText) {
+        svg.append("text").attr("x", 40).attr("y", 960).attr("class", "map-footnote").text(footnoteText);
+      }
+
+      if (!geojsonData) {
+        svg.append("text")
+          .attr("x", 500).attr("y", 500)
+          .attr("text-anchor", "middle").attr("fill", "#64748b")
+          .text("Upload a GeoJSON file above to visualize Aerlton, Arwinton & custom regions.");
+        return;
+      }
+
+      const hideUnmatched = document.getElementById('crop-option').value === 'crop';
+      let features = geojsonData.features;
+
+      if (hideUnmatched) {
+        features = features.filter(f => {
+          const name = getFeatureName(f);
+          return parsedData.some(d => d.region.toLowerCase() === name.toLowerCase());
+        });
+      }
+
+      const projection = d3.geoMercator().fitExtent([[60, 80], [940, 800]], { type: "FeatureCollection", features: features });
+      const pathGenerator = d3.geoPath().projection(projection);
+
+      const dataMap = {};
+      parsedData.forEach(d => {
+        const total = d.NDP + d.IDP + d.NCP;
+        const isPercent = document.getElementById('calc-mode').value === 'percent';
         
-        syncInputsList.forEach(input => {
-            input.addEventListener('input', () => {
-                state.borderStroke = parseFloat(borderStrokeSlider.value);
-                state.mapScale = parseFloat(mapScaleSlider.value);
-                state.gradientStyle = gradientStyleSelect.value;
-                state.numberFormat = numberFormatSelect.value;
-                state.reverseColors = reverseColors.checked;
-                state.enableShadows = enableShadows.checked;
-                state.titleText = document.getElementById('titleInput').value;
-                state.subtitleText = document.getElementById('subtitleInput').value;
-                state.partyAColor = document.getElementById('partyAColor').value;
-                state.partyBColor = document.getElementById('partyBColor').value;
-                state.showLabels = document.getElementById('showLabelsToggle').checked;
-                state.preventOverlap = document.getElementById('preventOverlapToggle').checked;
-                state.labelSize = parseFloat(document.getElementById('labelSizeInput').value) || 9;
-                state.labelColor = document.getElementById('labelColorInput').value;
-                state.labelFont = document.getElementById('labelFontSelect').value;
+        let pNDP = isPercent ? d.NDP : (total ? (d.NDP / total) * 100 : 0);
+        let pIDP = isPercent ? d.IDP : (total ? (d.IDP / total) * 100 : 0);
+        let pNCP = isPercent ? d.NCP : (total ? (d.NCP / total) * 100 : 0);
 
-                toggleCustomGradientUIPanel();
-                saveStateToLocalStorage();
-                updateMapCanvasDisplay();
-            });
+        let winner = 'NDP'; let maxVal = pNDP;
+        if (pIDP > maxVal) { winner = 'IDP'; maxVal = pIDP; }
+        if (pNCP > maxVal) { winner = 'NCP'; maxVal = pNCP; }
+
+        dataMap[d.region.toLowerCase()] = { winner, val: maxVal };
+      });
+
+      svg.append("g").selectAll("path")
+        .data(features)
+        .enter()
+        .append("path")
+        .attr("d", pathGenerator)
+        .attr("class", d => dataMap[getFeatureName(d).toLowerCase()] ? "region" : "region region-greyed")
+        .attr("fill", d => {
+          const match = dataMap[getFeatureName(d).toLowerCase()];
+          return match ? getColorShade(partyColors[match.winner], match.val, 30, 100) : "#e2e8f0";
         });
 
-        function toggleCustomGradientUIPanel() {
-            if(state.gradientStyle === 'custom') {
-                document.getElementById('customGradientUIPanel').classList.remove('hidden');
-                renderGradientTrackRailPins();
-            } else {
-                document.getElementById('customGradientUIPanel').classList.add('hidden');
-            }
-        }
+      renderLegend(svg);
+      renderMagnifiers(svg, pathGenerator, features);
+    }
 
-        function renderGradientTrackRailPins() {
-            gradientTrackBar.innerHTML = '';
-            state.customGradientNodes.sort((a,b) => a.offset - b.offset);
-            let linearString = state.customGradientNodes.map(n => `${n.color} ${n.offset}%`).join(', ');
-            gradientTrackBar.style.background = `linear-gradient(to right, ${linearString})`;
+    function getFeatureName(f) {
+      if (!f.properties) return '';
+      return f.properties.name || f.properties.NAME || f.properties.region || f.properties.COUNTY || f.properties.ADM1_EN || '';
+    }
 
-            state.customGradientNodes.forEach((node, index) => {
-                let pin = document.createElement('div');
-                pin.className = "gradient-node-pin";
-                pin.style.left = `${node.offset}%`;
-                pin.style.backgroundColor = node.color;
-                if(state.selectedNodeIndex === index) {
-                    pin.style.borderColor = "#fbbf24";
-                    nodeColorPicker.value = node.color;
-                }
-                pin.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    state.selectedNodeIndex = index;
-                    renderGradientTrackRailPins();
-                    updateMapCanvasDisplay();
-                });
-                gradientTrackBar.appendChild(pin);
-            });
-        }
+    // --- HORIZONTAL LEGEND ---
+    function renderLegend(svg) {
+      const legendGroup = svg.append("g").attr("transform", "translate(40, 830)");
+      const ranges = document.getElementById('custom-ranges').value.split(',').map(r => r.trim() + '%');
+      const parties = [
+        { name: 'NDP', color: partyColors.NDP },
+        { name: 'IDP', color: partyColors.IDP },
+        { name: 'NCP', color: partyColors.NCP }
+      ];
 
-        gradientTrackBar.addEventListener('click', function(e) {
-            let rect = this.getBoundingClientRect();
-            let clickedOffset = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-            clickedOffset = Math.max(0, Math.min(100, clickedOffset));
-            let baseColor = nodeColorPicker.value;
-            state.customGradientNodes.push({ offset: clickedOffset, color: baseColor });
-            state.selectedNodeIndex = state.customGradientNodes.length - 1;
-            renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-        });
+      const boxWidth = 35, boxHeight = 18;
 
-        nodeColorPicker.addEventListener('input', () => {
-            if(state.selectedNodeIndex !== null && state.customGradientNodes[state.selectedNodeIndex]) {
-                let pickedColor = nodeColorPicker.value;
-                state.customGradientNodes[state.selectedNodeIndex].color = pickedColor;
-                if (state.selectedNodeIndex === state.customGradientNodes.length - 1) {
-                    state.customGradientNodes[0].color = d3.interpolateLab("#f8fafc", pickedColor)(0.06);
-                }
-                renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-            }
-        });
-
-        document.getElementById('deleteNodeBtn').addEventListener('click', () => {
-            if(state.customGradientNodes.length <= 2) return;
-            state.customGradientNodes.splice(state.selectedNodeIndex, 1);
-            state.selectedNodeIndex = 0;
-            renderGradientTrackRailPins(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-        });
-
-        document.getElementById('modeGradientBtn').addEventListener('click', function() {
-            state.executionMode = 'gradient';
-            this.className = "bg-amber-600 text-white text-xs font-bold py-1 px-2 rounded";
-            document.getElementById('modeElectionBtn').className = "text-slate-400 hover:text-white text-xs font-bold py-1 px-2 rounded";
-            document.getElementById('gradientSubpanel').classList.remove('hidden');
-            document.getElementById('electionSubpanel').classList.add('hidden');
-            document.getElementById('customBreaksConfigBlock').classList.remove('hidden');
-            saveStateToLocalStorage(); updateMapCanvasDisplay();
-        });
-
-        document.getElementById('modeElectionBtn').addEventListener('click', function() {
-            state.executionMode = 'election';
-            this.className = "bg-amber-600 text-white text-xs font-bold py-1 px-2 rounded";
-            document.getElementById('modeGradientBtn').className = "text-slate-400 hover:text-white text-xs font-bold py-1 px-2 rounded";
-            document.getElementById('gradientSubpanel').classList.add('hidden');
-            document.getElementById('electionSubpanel').classList.remove('hidden');
-            document.getElementById('customBreaksConfigBlock').classList.add('hidden');
-            saveStateToLocalStorage(); updateMapCanvasDisplay();
-        });
-
-        geoFileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const r = new FileReader();
-            r.onload = function(evt) {
-                try {
-                    runtimeGeoJsonMemory = JSON.parse(evt.target.result);
-                    runtimeGeoJsonMemory.features = runtimeGeoJsonMemory.features.filter(f => f && f.geometry);
-                    const testFeatureProps = Object.keys(runtimeGeoJsonMemory.features[0].properties);
-                    propertySelect.innerHTML = '';
-                    testFeatureProps.forEach(k => {
-                        let opt = document.createElement('option'); opt.value = k; opt.textContent = k;
-                        propertySelect.appendChild(opt);
-                    });
-                    propertySelect.disabled = false;
-                    let autoMatchKey = testFeatureProps.find(key => ['name', 'Name', 'id', 'ID', 'state'].includes(key)) || testFeatureProps[0];
-                    propertySelect.value = autoMatchKey;
-                    state.selectedProp = autoMatchKey;
-                    if(state.clipboardText) runClipboardDataCompilation();
-                    updateMapCanvasDisplay(); saveStateToLocalStorage();
-                } catch(err) { alert("Invalid GeoJSON geometry topology."); }
-            };
-            r.readAsText(file);
-        });
-
-        propertySelect.addEventListener('change', (e) => { state.selectedProp = e.target.value; updateMapCanvasDisplay(); saveStateToLocalStorage(); });
-        labelPropertySelect.addEventListener('change', (e) => { state.labelProp = e.target.value; saveStateToLocalStorage(); updateMapCanvasDisplay(); });
-
-        function extractFeatureIdentityToken(feature) {
-            const props = feature.properties;
-            const scanChain = [state.selectedProp, 'name', 'Name', 'id', 'ID'];
-            for(let token of scanChain) {
-                if(props[token] !== undefined && props[token] !== null) return props[token].toString().trim();
-            }
-            return "";
-        }
-
-        function runClipboardDataCompilation() {
-            if(!state.clipboardText) return;
-            const rows = state.clipboardText.split("\n").map(r => r.trim()).filter(r => r.length > 0);
-            if(rows.length === 0) return;
-
-            let firstRowTokens = rows[0].split(/\t|,|;/);
-            state.pastedHeaders = [];
-            firstRowTokens.forEach((tok, i) => {
-                state.pastedHeaders.push({ key: `col_${i}`, label: tok.replace(/["']/g, "").trim() || `Column ${i+1}` });
-            });
-
-            labelPropertySelect.innerHTML = '';
-            state.pastedHeaders.forEach(h => {
-                let opt = document.createElement('option'); opt.value = h.key; opt.textContent = h.label;
-                labelPropertySelect.appendChild(opt);
-            });
-            labelPropertySelect.disabled = false;
-            state.labelProp = state.pastedHeaders[2] ? state.pastedHeaders[2].key : state.pastedHeaders[0].key;
-            labelPropertySelect.value = state.labelProp;
-
-            let records = [];
-            rows.forEach(row => {
-                let tokens = row.split(/\t|,|;/).map(t => t.trim().replace(/["']/g, ""));
-                let rowObject = {};
-                state.pastedHeaders.forEach((h, colIndex) => { rowObject[h.key] = tokens[colIndex] || ""; });
-                records.push({
-                    rawLabel: tokens[0] || "",
-                    value: parseFloat(tokens[1]) || 0,
-                    mappedFeatureId: null,
-                    cellsDataMap: rowObject
-                });
-            });
-
-            state.pastedRows = records;
-            if(runtimeGeoJsonMemory) {
-                state.pastedRows.forEach(record => {
-                    let lowerSearchLabel = record.rawLabel.toLowerCase();
-                    let matchedFeature = runtimeGeoJsonMemory.features.find(f => {
-                        let idToken = extractFeatureIdentityToken(f).toLowerCase();
-                        return idToken === lowerSearchLabel || idToken.replace(/[^a-z0-9]/g, "") === lowerSearchLabel.replace(/[^a-z0-9]/g, "");
-                    });
-                    if(matchedFeature) record.mappedFeatureId = matchedFeature.id || extractFeatureIdentityToken(matchedFeature);
-                });
-            }
-            synchronizeLedgerCorrectionInterface(); saveStateToLocalStorage(); updateMapCanvasDisplay();
-        }
-
-        function synchronizeLedgerCorrectionInterface() {
-            ledgerTableBody.innerHTML = '';
-            if(state.pastedRows.length === 0) {
-                ledgerTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-slate-500 italic">No spreadsheet columns imported yet.</td></tr>`;
-                return;
-            }
-            state.pastedRows.forEach((row, index) => {
-                let tr = document.createElement('tr');
-                let isAligned = row.mappedFeatureId !== null;
-                tr.className = isAligned ? "border-b border-slate-800 hover:bg-slate-800/20 text-slate-300" : "bg-rose-950/30 text-rose-300 border-b border-rose-900/40";
-                tr.innerHTML = `
-                    <td class="p-1 font-bold">${row.rawLabel}</td>
-                    <td class="p-1 italic text-slate-400">${isAligned ? row.mappedFeatureId : '⚠️ UNMAPPED'}</td>
-                    <td class="p-1 font-mono text-amber-400">${row.cellsDataMap[state.labelProp] || row.value}</td>
-                    <td class="p-1 text-right"><button class="bg-slate-800 hover:bg-amber-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold transition">Route</button></td>
-                `;
-                tr.querySelector('button').addEventListener('click', () => openManualAlignmentWizard(index));
-                ledgerTableBody.appendChild(tr);
-            });
-        }
-
-        let activeRemapIndex = null;
-        function openManualAlignmentWizard(rowIndex) {
-            activeRemapIndex = rowIndex;
-            document.getElementById('modalTargetLabel').textContent = state.pastedRows[rowIndex].rawLabel;
-            document.getElementById('remappingModal').classList.remove('hidden');
-            renderWizardTargetRegistry("");
-        }
-
-        document.getElementById('modalSearchInput').addEventListener('input', (e) => renderWizardTargetRegistry(e.target.value.toLowerCase()));
-
-        function renderWizardTargetRegistry(filterText) {
-            const container = document.getElementById('modalListContainer'); container.innerHTML = '';
-            if(!runtimeGeoJsonMemory) return;
-            runtimeGeoJsonMemory.features.forEach(f => {
-                let identity = extractFeatureIdentityToken(f);
-                if(filterText && !identity.toLowerCase().includes(filterText)) return;
-                let div = document.createElement('div');
-                div.className = "p-1.5 hover:bg-amber-600 hover:text-white cursor-pointer transition flex justify-between";
-                div.innerHTML = `<span>${identity}</span>`;
-                div.addEventListener('click', () => {
-                    state.pastedRows[activeRemapIndex].mappedFeatureId = f.id || identity;
-                    document.getElementById('remappingModal').classList.add('hidden');
-                    synchronizeLedgerCorrectionInterface(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-                });
-                container.appendChild(div);
-            });
-        }
-
-        document.getElementById('closeModalBtn').addEventListener('click', () => document.getElementById('remappingModal').classList.add('hidden'));
-
-        document.getElementById('submitBreakBtn').addEventListener('click', () => {
-            const input = document.getElementById('newBreakValueInput');
-            const parsedVal = parseFloat(input.value);
-            if(!isNaN(parsedVal)) {
-                state.customStops.push(parsedVal); state.customStops.sort((a,b)=>a-b);
-                input.value = ''; syncBreakChipsContainer(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-            }
-        });
-
-        function syncBreakChipsContainer() {
-            const container = document.getElementById('valueBreaksContainer'); container.innerHTML = '';
-            state.customStops.forEach((st, idx) => {
-                let chip = document.createElement('span');
-                chip.className = "bg-slate-800 border border-slate-700 text-amber-400 font-mono text-[10px] px-2 py-0.5 rounded flex items-center gap-1";
-                chip.innerHTML = `${st} <button class="text-rose-500 font-bold ml-1">×</button>`;
-                chip.querySelector('button').addEventListener('click', () => {
-                    state.customStops.splice(idx, 1); syncBreakChipsContainer(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-                });
-                container.appendChild(chip);
-            });
-        }
-
-        floatingImageInput.addEventListener('change', function(e) {
-            const file = e.target.files[0]; if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                let imgId = "img-" + Date.now();
-                state.floatingImagesList.push({ id: imgId, src: evt.target.result, name: file.name, x: 250, y: 200, w: 130, h: 130 });
-                syncFloatingImageAssetLedger(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-            };
-            reader.readAsDataURL(file);
-        });
-
-        function syncFloatingImageAssetLedger() {
-            assetLedgerContainer.innerHTML = '';
-            if(state.floatingImagesList.length === 0) {
-                assetLedgerContainer.innerHTML = `<div class="text-slate-500 italic text-center py-1">No floating graphic elements deployed.</div>`;
-                return;
-            }
-            state.floatingImagesList.forEach((imgObj) => {
-                let row = document.createElement('div');
-                row.className = "flex justify-between items-center bg-slate-900 border border-slate-800 rounded px-2 py-1 gap-2";
-                row.innerHTML = `
-                    <img src="${imgObj.src}" class="w-5 h-5 object-cover rounded bg-white">
-                    <span class="truncate flex-1 text-slate-300 font-mono text-[10px]">${imgObj.name}</span>
-                    <button class="text-rose-400 hover:text-rose-600 font-black text-xs px-1 rounded transition">×</button>
-                `;
-                row.querySelector('button').addEventListener('click', () => {
-                    state.floatingImagesList = state.floatingImagesList.filter(item => item.id !== imgObj.id);
-                    if(state.selectedAssetId === imgObj.id) state.selectedAssetId = null;
-                    syncFloatingImageAssetLedger(); updateMapCanvasDisplay(); saveStateToLocalStorage();
-                });
-                assetLedgerContainer.appendChild(row);
-            });
-        }
-
-        boundaryImageInput.addEventListener('change', function(e) {
-            const file = e.target.files[0]; if(!file || state.selectedFeatureId === null) return;
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                state.boundaryTextures[state.selectedFeatureId] = evt.target.result;
-                updateMapCanvasDisplay(); saveStateToLocalStorage();
-            };
-            reader.readAsDataURL(file);
-        });
-
-        function getFeatureMetricValue(feature) {
-            if(state.pastedRows.length > 0) {
-                let id = feature.id || extractFeatureIdentityToken(feature);
-                let record = state.pastedRows.find(r => r.mappedFeatureId === id);
-                return record ? record.value : null; 
-            }
-            return feature.properties[state.selectedProp] !== undefined ? parseFloat(feature.properties[state.selectedProp]) : null;
-        }
-
-        function getFeatureLabelText(feature) {
-            if(state.pastedRows.length > 0) {
-                let id = feature.id || extractFeatureIdentityToken(feature);
-                let record = state.pastedRows.find(r => r.mappedFeatureId === id);
-                if(record && record.cellsDataMap[state.labelProp] !== undefined) return record.cellsDataMap[state.labelProp].toString();
-            }
-            return feature.properties[state.selectedProp] || "";
-        }
-
-        function updateMapCanvasDisplay() {
-            const w = 900, h = 650;
-            svg.attr("viewBox", `0 0 ${w} ${h}`).style("background", "#ffffff");
-            geometryGroup.selectAll("*").remove(); interfaceGroup.selectAll("*").remove(); defs.selectAll("*").remove();
-
-            const metaGroup = interfaceGroup.append("g").attr("text-anchor", "middle");
-            metaGroup.append("text").attr("x", w / 2).attr("y", 42).attr("font-size", "24px").attr("font-weight", "700").attr("fill", "#0f172a").text(state.titleText);
-            metaGroup.append("text").attr("x", w / 2).attr("y", 64).attr("font-size", "12px").attr("fill", "#64748b").text(state.subtitleText);
-
-            if(!runtimeGeoJsonMemory) return;
-
-            const features = runtimeGeoJsonMemory.features;
-            
-            // CRITICAL FIX: Extract metrics strictly from states that are active/mapped to fix the uniform color issue
-            let activeValues = features.map(getFeatureMetricValue).filter(v => v !== null);
-            if(activeValues.length === 0) activeValues = [0, 100];
-            
-            const minV = d3.min(activeValues);
-            const maxV = d3.max(activeValues);
-            const rangeDelta = maxV - minV || 1;
-
-            let colorScaler;
-            if (state.executionMode === 'gradient') {
-                if(state.gradientStyle === 'custom') {
-                    let domainArr = state.customGradientNodes.map(n => minV + (n.offset / 100) * rangeDelta);
-                    let rangeArr = state.customGradientNodes.map(n => n.color);
-                    colorScaler = d3.scaleLinear().domain(domainArr).range(rangeArr).clamp(true);
-                } else {
-                    let paletteRamp = [...colorRamps[state.gradientStyle]];
-                    if(state.reverseColors) paletteRamp.reverse();
-                    if(state.customStops.length >= 1) {
-                        colorScaler = d3.scaleThreshold().domain(state.customStops).range(paletteRamp.slice(0, state.customStops.length + 1));
-                    } else {
-                        colorScaler = d3.scaleQuantize().domain([minV, maxV]).range(paletteRamp);
-                    }
-                }
-            } else {
-                let peakMargin = d3.max(activeValues.map(Math.abs)) || 1;
-                colorScaler = (val) => {
-                    if (val === null || val === 0) return "#f8fafc";
-                    return val > 0 ? d3.interpolateLab("#f8fafc", state.partyAColor)(Math.min(1, val / peakMargin))
-                                   : d3.interpolateLab("#f8fafc", state.partyBColor)(Math.min(1, Math.abs(val) / peakMargin));
-                };
-            }
-
-            // CRITICAL FIX: Layer layout container transformations applied with customizable visual multipliers
-            const currentLayoutScale = state.mapScale || 1.0;
-            const flatProjection = d3.geoIdentity().reflectY(true).fitSize([(w - 100) * currentLayoutScale, (h - 280) * currentLayoutScale], runtimeGeoJsonMemory);
-            const pathGen = d3.geoPath().projection(flatProjection);
-            
-            // Center map container dynamically depending on scale factor
-            const translateX = (w / 2) - (((w - 100) * currentLayoutScale) / 2) + 10;
-            const translateY = 150;
-
-            const internalGeomGroup = geometryGroup.append("g")
-                .attr("class", "geometry-map-core-frame")
-                .attr("transform", `translate(${translateX}, ${translateY})`);
-
-            internalGeomGroup.selectAll(".map-polygon-layer")
-                .data(features)
-                .join("path")
-                .attr("class", state.enableShadows ? "map-polygon-layer map-layer-shadow" : "map-polygon-layer")
-                .attr("d", pathGen)
-                .attr("stroke", "#1e293b")
-                .attr("stroke-width", state.borderStroke)
-                .each(function(d) {
-                    let fId = d.id || extractFeatureIdentityToken(d);
-                    let mVal = getFeatureMetricValue(d);
-                    if(state.boundaryTextures[fId]) {
-                        let bounds = pathGen.bounds(d);
-                        let bw = bounds[1][0] - bounds[0][0] || 10;
-                        let bh = bounds[1][1] - bounds[0][1] || 10;
-                        let clipId = `clip-${fId.replace(/[^a-zA-Z0-9]/g, "-")}`;
-                        let patternId = `pat-${fId.replace(/[^a-zA-Z0-9]/g, "-")}`;
-
-                        defs.append("clipPath").attr("id", clipId).append("path").attr("d", pathGen(d));
-                        defs.append("pattern").attr("id", patternId).attr("patternUnits", "userSpaceOnUse")
-                            .attr("x", bounds[0][0]).attr("y", bounds[0][1]).attr("width", bw).attr("height", bh)
-                            .append("image").attr("xlink:href", state.boundaryTextures[fId]).attr("width", bw).attr("height", bh).attr("preserveAspectRatio", "none");
-                        d3.select(this).attr("fill", `url(#${patternId})`);
-                    } else {
-                        d3.select(this).attr("fill", mVal !== null ? colorScaler(mVal) : "#e2e8f0");
-                    }
-                })
-                .on("click", function(event, d) {
-                    event.stopPropagation();
-                    let fId = d.id || extractFeatureIdentityToken(d);
-                    state.selectedFeatureId = fId;
-                    let name = getFeatureLabelText(d) || fId;
-                    let val = getFeatureMetricValue(d) || 0;
-
-                    infoOverlayBox.classList.remove('hidden');
-                    infoBoxTitle.textContent = name;
-                    infoBoxData.textContent = `Registered Metric: ${formatMetricDisplay(val, state.numberFormat)}`;
-
-                    d3.selectAll(".map-polygon-layer").attr("stroke", "#1e293b").attr("stroke-width", state.borderStroke);
-                    d3.select(this).attr("stroke", "#fbbf24").attr("stroke-width", 2).raise();
-                });
-
-            // RENDER INTERACTIVE DRAGGABLE & DRAG-RESIZABLE IMAGES
-            state.floatingImagesList.forEach((imgRecord) => {
-                let isSelected = state.selectedAssetId === imgRecord.id;
-                let imgGroup = geometryGroup.append("g").attr("id", `g-${imgRecord.id}`);
-
-                let imgNode = imgGroup.append("image")
-                    .attr("xlink:href", imgRecord.src)
-                    .attr("x", imgRecord.x).attr("y", imgRecord.y)
-                    .attr("width", imgRecord.w).attr("height", imgRecord.h)
-                    .attr("class", "draggable-element")
-                    .on("click", function(event) {
-                        event.stopPropagation();
-                        state.selectedAssetId = imgRecord.id;
-                        updateMapCanvasDisplay();
-                    });
-
-                imgNode.call(d3.drag().on("drag", function(event) {
-                    imgRecord.x += event.dx;
-                    imgRecord.y += event.dy;
-                    updateMapCanvasDisplay();
-                    saveStateToLocalStorage();
-                }));
-
-                if(isSelected) {
-                    imgGroup.append("rect")
-                        .attr("x", imgRecord.x).attr("y", imgRecord.y)
-                        .attr("width", imgRecord.w).attr("height", imgRecord.h)
-                        .attr("class", "selected-asset-border");
-
-                    // Bottom-Right Corner Resize Drag Node Anchor Component
-                    let handleNode = imgGroup.append("circle")
-                        .attr("cx", imgRecord.x + imgRecord.w)
-                        .attr("cy", imgRecord.y + imgRecord.h)
-                        .attr("r", 7)
-                        .attr("class", "resize-handle");
-
-                    handleNode.call(d3.drag().on("drag", function(event) {
-                        imgRecord.w = Math.max(20, imgRecord.w + event.dx);
-                        imgRecord.h = Math.max(20, imgRecord.h + event.dy);
-                        updateMapCanvasDisplay();
-                        saveStateToLocalStorage();
-                    }));
-                }
-            });
-
-            // LEGEND RENDERING GENERATOR
-            const legendGroup = interfaceGroup.append("g").attr("transform", `translate(${w/2 - 150}, 95)`);
-            const legW = 300, legH = 8;
-
-            if (state.executionMode === 'gradient') {
-                if(state.gradientStyle === 'custom') {
-                    const gradId = "custom-gradient-ramp-token";
-                    const linearGrad = defs.append("linearGradient").attr("id", gradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
-                    state.customGradientNodes.forEach(n => linearGrad.append("stop").attr("offset", `${n.offset}%`).attr("stop-color", n.color));
-                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`);
-                } else if(state.customStops.length > 0) {
-                    let blockW = legW / (state.customStops.length + 1);
-                    legendGroup.append("rect").attr("width", blockW).attr("height", legH).attr("fill", colorScaler(minV));
-                    state.customStops.forEach((stop, i) => {
-                        legendGroup.append("rect").attr("x", (i + 1) * blockW).attr("width", blockW).attr("height", legH).attr("fill", colorScaler(stop + 0.001));
-                    });
-                } else {
-                    const gradId = "gradient-ramp-token-v7";
-                    const linearGrad = defs.append("linearGradient").attr("id", gradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
-                    let paletteRamp = [...colorRamps[state.gradientStyle]];
-                    if(state.reverseColors) paletteRamp.reverse();
-                    paletteRamp.forEach((col, i) => linearGrad.append("stop").attr("offset", `${(i / (paletteRamp.length - 1)) * 100}%`).attr("stop-color", col));
-                    legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${gradId})`);
-                }
-                legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(minV, state.numberFormat));
-                legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", "#64748b").text(formatMetricDisplay(maxV, state.numberFormat));
-            } else {
-                let peakMargin = d3.max(activeValues.map(Math.abs)) || 1;
-                const electGradId = "election-ramp-token-v7";
-                const linearGrad = defs.append("linearGradient").attr("id", electGradId).attr("x1", "0%").attr("y1", "0%").attr("x2", "100%").attr("y2", "0%");
-                linearGrad.append("stop").attr("offset", "0%").attr("stop-color", state.partyBColor);
-                linearGrad.append("stop").attr("offset", "50%").attr("stop-color", "#f8fafc");
-                linearGrad.append("stop").attr("offset", "100%").attr("stop-color", state.partyAColor);
-                legendGroup.append("rect").attr("width", legW).attr("height", legH).attr("fill", `url(#${electGradId})`);
-                legendGroup.append("text").attr("x", 0).attr("y", legH + 12).attr("font-size", "9px").attr("fill", state.partyBColor).text(`${formatMetricDisplay(Math.abs(peakMargin), state.numberFormat)} (B)`);
-                legendGroup.append("text").attr("x", legW).attr("y", legH + 12).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", state.partyAColor).text(`${formatMetricDisplay(peakMargin, state.numberFormat)} (A)`);
-            }
-
-            if(state.showLabels) {
-                const labelGroup = internalGeomGroup.append("g").attr("font-family", state.labelFont).attr("font-size", `${state.labelSize}px`).attr("fill", state.labelColor).attr("text-anchor", "middle");
-                let labelPlacedPositions = [];
-                features.forEach(f => {
-                    let labelString = getFeatureLabelText(f); if(!labelString) return;
-                    let centroid = pathGen.centroid(f); if(!centroid || isNaN(centroid[0]) || isNaN(centroid[1])) return;
-                    if(state.preventOverlap) {
-                        let collision = labelPlacedPositions.some(p => Math.hypot(p[0] - centroid[0], p[1] - centroid[1]) < (state.labelSize * 1.8));
-                        if(collision) return;
-                    }
-                    labelPlacedPositions.push(centroid);
-                    labelGroup.append("text").attr("x", centroid[0]).attr("y", centroid[1] + 3).text(labelString);
-                });
-            }
-        }
-
-        svg.on("click", () => { state.selectedAssetId = null; updateMapCanvasDisplay(); });
-        document.getElementById('zoomIn').addEventListener('click', () => svg.transition().call(zoomBehavior.scaleBy, 1.4));
-        document.getElementById('zoomOut').addEventListener('click', () => svg.transition().call(zoomBehavior.scaleBy, 0.6));
-        document.getElementById('zoomReset').addEventListener('click', () => svg.transition().call(zoomBehavior.transform, d3.zoomIdentity));
-
-        document.getElementById('downloadImageBtn').addEventListener('click', () => {
-            const originalSvgEl = document.getElementById('mapCanvas');
-            const exportClone = originalSvgEl.cloneNode(true);
-            const cloneMasterGroup = exportClone.querySelector("#masterCanvasGroup");
-            if (cloneMasterGroup) cloneMasterGroup.removeAttribute("transform");
-            
-            // Explicitly strip bounding highlights from image assets before capturing export stream snapshot vectors
-            exportClone.querySelectorAll(".selected-asset-border, .resize-handle").forEach(node => node.remove());
-
-            exportClone.setAttribute("width", "1800"); exportClone.setAttribute("height", "1300");
-            const svgString = new XMLSerializer().serializeToString(exportClone);
-            const svgBlob = new Blob([svgString], {type: "image/svg+xml;charset=utf-8"});
-            const blobURL = (window.URL || window.webkitURL || window).createObjectURL(svgBlob);
-            
-            const img = new Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 1800; canvas.height = 1300;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                const link = document.createElement('a'); link.href = canvas.toDataURL('image/png');
-                link.download = `Studio_Cartography_Map.png`; link.click();
-                (window.URL || window.webkitURL).revokeObjectURL(blobURL);
-            };
-            img.src = blobURL;
-        });
+      parties.forEach((party, pIdx) => {
+        const yOffset = pIdx * (boxHeight + 2);
         
-        document.getElementById('processClipboardBtn').addEventListener('click', () => {
-            state.clipboardText = csvPasteInput.value; runClipboardDataCompilation();
-        });
+        legendGroup.append("rect")
+          .attr("x", 0).attr("y", yOffset)
+          .attr("width", 60).attr("height", boxHeight)
+          .attr("fill", party.color);
 
-        if(state.clipboardText) { runClipboardDataCompilation(); } else { updateMapCanvasDisplay(); }
-    </script>
+        legendGroup.append("text")
+          .attr("x", 30).attr("y", yOffset + 13)
+          .attr("text-anchor", "middle").attr("fill", "#ffffff")
+          .attr("class", "party-label").text(party.name);
+
+        ranges.forEach((range, rIdx) => {
+          const shade = getColorShade(party.color, (rIdx / ranges.length) * 100, 0, 100);
+          const xPos = 65 + (rIdx * boxWidth);
+
+          legendGroup.append("rect")
+            .attr("x", xPos).attr("y", yOffset)
+            .attr("width", boxWidth - 1).attr("height", boxHeight)
+            .attr("fill", shade);
+
+          if (pIdx === parties.length - 1) {
+            legendGroup.append("text")
+              .attr("x", xPos + (boxWidth / 2)).attr("y", yOffset + boxHeight + 12)
+              .attr("text-anchor", "middle").attr("class", "range-label").text(range);
+          }
+        });
+      });
+    }
+
+    // --- MAGNIFIER SYSTEM ---
+    function renderMagnifiers(svg, pathGenerator, features) {
+      magnifiers.forEach((mag) => {
+        const feature = features.find(f => getFeatureName(f).toLowerCase() === mag.region.toLowerCase());
+        if (!feature) return;
+
+        const centroid = pathGenerator.centroid(feature);
+        const boxSize = 100;
+
+        svg.append("line")
+          .attr("x1", centroid[0]).attr("y1", centroid[1])
+          .attr("x2", mag.x).attr("y2", mag.y + (boxSize / 2))
+          .attr("class", "magnify-line");
+
+        svg.append("rect")
+          .attr("x", mag.x).attr("y", mag.y)
+          .attr("width", boxSize).attr("height", boxSize)
+          .attr("class", "magnify-box");
+
+        svg.append("text")
+          .attr("x", mag.x + 50).attr("y", mag.y + 30)
+          .attr("text-anchor", "middle").attr("font-size", "12px").attr("font-weight", "bold")
+          .text(mag.region);
+
+        svg.append("text")
+          .attr("x", mag.x + 50).attr("y", mag.y + 60)
+          .attr("text-anchor", "middle").attr("font-size", "10px").attr("fill", "#0284c7")
+          .text("Magnified View");
+      });
+    }
+
+    function clearMagnifiers() { magnifiers = []; renderMap(); }
+
+    // --- MODERN POPUP MODAL CONTROL ---
+    function openMagnifierModal() {
+      if (magnifiers.length >= 5) {
+        showNotification("Limit Reached", "Maximum 5 magnification boxes allowed.");
+        return;
+      }
+      showModal("Magnify Region", "Enter region name to place an inset box:", true, (regionName) => {
+        if (!regionName) return;
+        magnifiers.push({ region: regionName, x: 750, y: 100 + (magnifiers.length * 130) });
+        renderMap();
+      });
+    }
+
+    function openSaveModal() {
+      showModal("Save Session", "Enter a name to save this election dataset:", true, (name) => {
+        if (!name) return;
+        const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}");
+        sessions[name] = {
+          parsedData,
+          title: document.getElementById('map-title-input').value,
+          footnote: document.getElementById('map-footnote-input').value,
+          ranges: document.getElementById('custom-ranges').value,
+          colors: { NDP: partyColors.NDP, IDP: partyColors.IDP, NCP: partyColors.NCP }
+        };
+        localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+        updateSavedSessionsDropdown();
+        showNotification("Saved", "Election session saved locally.");
+      });
+    }
+
+    function showModal(title, desc, hasInput, callback) {
+      document.getElementById('modal-title').innerText = title;
+      document.getElementById('modal-desc').innerText = desc;
+      const input = document.getElementById('modal-input');
+      
+      if (hasInput) {
+        input.style.display = 'block';
+        input.value = '';
+      } else {
+        input.style.display = 'none';
+      }
+
+      const modal = document.getElementById('custom-modal');
+      modal.classList.add('active');
+
+      document.getElementById('modal-confirm-btn').onclick = function() {
+        closeModal();
+        if (callback) callback(hasInput ? input.value : true);
+      };
+    }
+
+    function showNotification(title, message) {
+      showModal(title, message, false, null);
+    }
+
+    function closeModal() {
+      document.getElementById('custom-modal').classList.remove('active');
+    }
+
+    function updateSavedSessionsDropdown() {
+      const dropdown = document.getElementById('saved-elections');
+      dropdown.innerHTML = '<option value="">-- Default / New Session --</option>';
+      const sessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}");
+      for (let key in sessions) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.innerText = key;
+        dropdown.appendChild(opt);
+      }
+    }
+
+    function loadSavedSession() {
+      const key = document.getElementById('saved-elections').value;
+      if (!key) return;
+      const session = JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}")[key];
+      if (!session) return;
+
+      parsedData = session.parsedData;
+      document.getElementById('map-title-input').value = session.title;
+      document.getElementById('map-footnote-input').value = session.footnote;
+      document.getElementById('custom-ranges').value = session.ranges;
+      
+      document.getElementById('color-ndp').value = session.colors.NDP;
+      document.getElementById('color-idp').value = session.colors.IDP;
+      document.getElementById('color-ncp').value = session.colors.NCP;
+
+      renderTable();
+      renderMap();
+    }
+
+    // --- 4K EXPORT ---
+    function export4KImage() {
+      const svgElement = document.getElementById('map-svg');
+      const xml = new XMLSerializer().serializeToString(svgElement);
+      const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+      const URL = window.URL || window.webkitURL || window;
+      const blobURL = URL.createObjectURL(svgBlob);
+
+      const image = new Image();
+      image.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 4000;
+        canvas.height = 4000;
+        const context = canvas.getContext('2d');
+        
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, 4000, 4000);
+
+        const png = canvas.toDataURL('image/png');
+        const downloadLink = document.createElement('a');
+        downloadLink.href = png;
+        downloadLink.download = 'ORLEANALYSIS_4K_Election_Map.png';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+      };
+      image.src = blobURL;
+    }
+  </script>
 </body>
 </html>
