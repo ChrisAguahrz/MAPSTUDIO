@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-     <meta charset="UTF-8">
+      <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -347,7 +347,7 @@
             throw new Error("No feature array found.");
           }
 
-              raw.features = raw.features.filter(isRenderableFeature);
+              raw.features = raw.features.filter(f => f && f.geometry);
           if (!raw.features.length) throw new Error("No renderable features found.");
           geojsonData = raw;
           populateGeoJSONFields();
@@ -480,14 +480,14 @@
       return d3.interpolateRgb('#ffffff', hexColor)(intensity);
     }
 
+    function hasCoordinateData(value) {
+      if (!Array.isArray(value)) return false;
+      if (value.length >= 2 && value.every(v => typeof v === 'number' && Number.isFinite(v))) return true;
+      return value.some(hasCoordinateData);
+    }
+
     function isRenderableFeature(f) {
-      if (!f || !f.geometry || !f.geometry.type) return false;
-      try {
-        const bounds = d3.geoBounds(f);
-        return bounds.flat().every(Number.isFinite) && bounds[0][0] <= bounds[1][0] && bounds[0][1] <= bounds[1][1];
-      } catch (err) {
-        return false;
-      }
+      return !!(f && f.geometry && hasCoordinateData(f.geometry.coordinates));
     }
 
     function populateGeoJSONFields() {
@@ -571,7 +571,7 @@
       }
 
       const hideUnmatched = document.getElementById('crop-option').value === 'crop';
-      const allFeatures = geojsonData.features.filter(isRenderableFeature);
+      const allFeatures = geojsonData.features.filter(f => f && f.geometry);
       let features = allFeatures.slice();
 
       if (hideUnmatched) {
@@ -582,7 +582,9 @@
       }
 
       if (!features.length) return;
-      const projection = d3.geoMercator().fitExtent([[60, 80], [940, 800]], { type: "FeatureCollection", features: features });
+      const fitFeatures = features.filter(isRenderableFeature);
+      if (!fitFeatures.length) return;
+      const projection = d3.geoMercator().fitExtent([[80, 100], [920, 780]], { type: "FeatureCollection", features: fitFeatures });
       const pathGenerator = d3.geoPath().projection(projection);
 
       const dataMap = {};
@@ -605,7 +607,7 @@
         .data(features)
         .enter()
         .append("path")
-        .attr("d", pathGenerator)
+        .attr("d", d => { try { return pathGenerator(d); } catch (err) { return null; } })
         .attr("class", d => dataMap[getFeatureName(d).toLowerCase()] ? "region" : "region region-greyed")
         .attr("fill", d => {
           const match = dataMap[getFeatureName(d).toLowerCase()];
@@ -622,7 +624,7 @@
       }
 
       renderLegend(svg);
-      renderMagnifiers(svg, pathGenerator, allFeatures);
+      renderMagnifiers(svg, pathGenerator, features);
     }
 
     // --- HORIZONTAL LEGEND ---
@@ -681,19 +683,27 @@
     }
 
     function renderMagnifiers(svg, pathGenerator, features) {
+      const layer = svg.append('g').attr('class', 'magnifier-layer');
       magnifiers.forEach((mag, index) => {
-        const feature = features.find(f => getFeatureName(f).toLowerCase() === String(mag.region).toLowerCase());
-        if (!feature) return;
-        const boxSize = 140;
+        const boxSize = 160;
         const position = findMagnifierPosition(pathGenerator, features, index);
         const x = position[0], y = position[1];
-        const centroid = pathGenerator.centroid(feature);
-        const insetProjection = d3.geoMercator().fitSize([boxSize - 16, boxSize - 16], feature);
-        const insetPath = d3.geoPath().projection(insetProjection);
-        const group = svg.append('g').attr('transform', `translate(${x + 8},${y + 8})`);
-        group.append('rect').attr('x', -8).attr('y', -8).attr('width', boxSize).attr('height', boxSize).attr('fill', '#ffffff').attr('stroke', '#000000').attr('stroke-width', 1.5);
-        group.append('path').datum(feature).attr('d', insetPath).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5);
-        svg.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
+        const feature = features.find(f => getFeatureName(f).toLowerCase() === String(mag.region).toLowerCase());
+        const box = layer.append('g').attr('class', 'magnifier-box');
+        box.append('rect').attr('x', x).attr('y', y).attr('width', boxSize).attr('height', boxSize).attr('fill', '#ffffff').attr('stroke', '#000000').attr('stroke-width', 2);
+        if (!feature || !isRenderableFeature(feature)) {
+          box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('No geometry');
+          return;
+        }
+        try {
+          const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: [feature] });
+          const insetPath = d3.geoPath().projection(insetProjection);
+          box.append('path').datum(feature).attr('d', insetPath).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5);
+          const centroid = pathGenerator.centroid(feature);
+          if (centroid.every(Number.isFinite)) layer.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
+        } catch (err) {
+          box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('Geometry error');
+        }
       });
     }
 
