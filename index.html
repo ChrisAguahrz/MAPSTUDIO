@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-        <meta charset="UTF-8">
+         <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -230,13 +230,13 @@
         </select>
 
         <label>Default Ranges (Comma Separated)</label>
-        <input type="text" id="custom-ranges" value="0, 25, 50, 75, 100" onchange="setDefaultPartyRanges(); renderMap()">
+        <input type="text" id="custom-ranges" value="40, 50, 60, 70" onchange="setDefaultPartyRanges(); renderMap()">
         <label>NDP Ranges</label>
-        <input type="text" id="ranges-ndp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-ndp" value="40, 50, 60, 70" onchange="renderMap(); saveProjectState()">
         <label>IDP Ranges</label>
-        <input type="text" id="ranges-idp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-idp" value="40, 50, 60, 70" onchange="renderMap(); saveProjectState()">
         <label>NCP Ranges</label>
-        <input type="text" id="ranges-ncp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-ncp" value="40, 50, 60, 70" onchange="renderMap(); saveProjectState()">
 
         <div style="display: flex; gap: 8px;">
           <div><label>NDP</label><input type="color" id="color-ndp" value="#0045A0" onchange="renderMap()"></div>
@@ -265,7 +265,9 @@
         <label>Magnify Region</label>
         <select id="magnifier-region" disabled><option value="">Upload GeoJSON first</option></select>
         <button class="btn btn-secondary" onclick="startMagnifierSelection()">Choose Region on Map</button>
-        <button class="btn btn-secondary" id="select-magnifier-btn" onclick="confirmMagnifierSelection()" style="display:none;">Select Region</button>
+        <button class="btn btn-secondary" id="select-magnifier-btn" onclick="confirmMagnifierSelection()" style="display:none;">Find Counties in Box</button>
+        <select id="magnifier-candidates" multiple size="6" style="display:none;width:100%;margin-top:6px;"></select>
+        <button class="btn btn-secondary" id="apply-magnifier-btn" onclick="applyMagnifierSelection()" style="display:none;">Magnify Selected Counties</button>
         <button class="btn btn-secondary" onclick="clearMagnifiers()">Reset Inset Boxes</button>
       </div>
 
@@ -307,8 +309,9 @@
     let magnifiers = [];
     let magnifierSelecting = false;
     let magnifierSelectionBox = null;
+    let pendingMagnifierFeatures = [];
     let legendOverrides = {};
-    let partyRanges = { NDP: '0, 25, 50, 75, 100', IDP: '0, 25, 50, 75, 100', NCP: '0, 25, 50, 75, 100' };
+    let partyRanges = { NDP: '40, 50, 60, 70', IDP: '40, 50, 60, 70', NCP: '40, 50, 60, 70' };
 
     const SESSIONS_KEY = "ORLE_SESSIONS";
     const PROJECT_STATE_KEY = "ORLE_PROJECT_STATE";
@@ -529,6 +532,7 @@
     }
 
     function getMapColor(party, value) {
+      if (document.getElementById('map-style-mode').value === 'winner_only') return partyColors[party];
       const ranges = getPartyRanges(party);
       let selectedIndex = 0;
       ranges.forEach((range, index) => { if (value >= range) selectedIndex = index; });
@@ -712,15 +716,27 @@
       if (!magnifierSelectionBox) return;
       const bx1 = magnifierSelectionBox.x, by1 = magnifierSelectionBox.y;
       const bx2 = bx1 + magnifierSelectionBox.size, by2 = by1 + magnifierSelectionBox.size;
-      const selected = featuresForCurrentMap.filter(feature => {
+      pendingMagnifierFeatures = featuresForCurrentMap.filter(feature => {
         const bounds = d3.geoPath().projection(magnifierSelectionBox.projection).bounds(feature);
         return bounds[1][0] >= bx1 && bounds[0][0] <= bx2 && bounds[1][1] >= by1 && bounds[0][1] <= by2;
-      });
-      const regions = selected.map(getFeatureName).filter(Boolean);
-      if (regions.length) magnifiers.push({ regions });
+      }).filter(f => getFeatureName(f));
+      const chooser = document.getElementById('magnifier-candidates');
+      chooser.innerHTML = pendingMagnifierFeatures.map((f, i) => `<option value="${i}" selected>${getFeatureName(f)}</option>`).join('');
+      chooser.style.display = pendingMagnifierFeatures.length ? 'block' : 'none';
+      document.getElementById('apply-magnifier-btn').style.display = pendingMagnifierFeatures.length ? 'block' : 'none';
       magnifierSelecting = false;
       magnifierSelectionBox = null;
       document.getElementById('select-magnifier-btn').style.display = 'none';
+      renderMap();
+    }
+
+    function applyMagnifierSelection() {
+      const chooser = document.getElementById('magnifier-candidates');
+      const regions = [...chooser.selectedOptions].map(option => getFeatureName(pendingMagnifierFeatures[Number(option.value)])).filter(Boolean);
+      if (regions.length) magnifiers.push({ regions });
+      chooser.style.display = 'none';
+      document.getElementById('apply-magnifier-btn').style.display = 'none';
+      pendingMagnifierFeatures = [];
       renderMap();
       saveProjectState();
     }
