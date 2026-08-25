@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-      <meta charset="UTF-8">
+       <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -230,13 +230,13 @@
         </select>
 
         <label>Default Ranges (Comma Separated)</label>
-        <input type="text" id="custom-ranges" value="0, 40, 50, 60, 70, 80, 100" onchange="setDefaultPartyRanges(); renderMap()">
+        <input type="text" id="custom-ranges" value="0, 25, 50, 75, 100" onchange="setDefaultPartyRanges(); renderMap()">
         <label>NDP Ranges</label>
-        <input type="text" id="ranges-ndp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-ndp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
         <label>IDP Ranges</label>
-        <input type="text" id="ranges-idp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-idp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
         <label>NCP Ranges</label>
-        <input type="text" id="ranges-ncp" value="0, 40, 50, 60, 70, 80, 100" onchange="renderMap(); saveProjectState()">
+        <input type="text" id="ranges-ncp" value="0, 25, 50, 75, 100" onchange="renderMap(); saveProjectState()">
 
         <div style="display: flex; gap: 8px;">
           <div><label>NDP</label><input type="color" id="color-ndp" value="#0045A0" onchange="renderMap()"></div>
@@ -264,7 +264,8 @@
 
         <label>Magnify Region</label>
         <select id="magnifier-region" disabled><option value="">Upload GeoJSON first</option></select>
-        <button class="btn btn-secondary" onclick="openMagnifierModal()">+ Add Inset Magnifier Box</button>
+        <button class="btn btn-secondary" onclick="startMagnifierSelection()">Choose Region on Map</button>
+        <button class="btn btn-secondary" id="select-magnifier-btn" onclick="confirmMagnifierSelection()" style="display:none;">Select Region</button>
         <button class="btn btn-secondary" onclick="clearMagnifiers()">Reset Inset Boxes</button>
       </div>
 
@@ -304,8 +305,10 @@
     let parsedData = [];
     let partyColors = { NDP: '#0045A0', IDP: '#006837', NCP: '#FE5F04' };
     let magnifiers = [];
+    let magnifierSelecting = false;
+    let magnifierSelectionBox = null;
     let legendOverrides = {};
-    let partyRanges = { NDP: '0, 40, 50, 60, 70, 80, 100', IDP: '0, 40, 50, 60, 70, 80, 100', NCP: '0, 40, 50, 60, 70, 80, 100' };
+    let partyRanges = { NDP: '0, 25, 50, 75, 100', IDP: '0, 25, 50, 75, 100', NCP: '0, 25, 50, 75, 100' };
 
     const SESSIONS_KEY = "ORLE_SESSIONS";
     const PROJECT_STATE_KEY = "ORLE_PROJECT_STATE";
@@ -527,10 +530,23 @@
 
     function getMapColor(party, value) {
       const ranges = getPartyRanges(party);
-      let selected = ranges[0] || 0;
-      ranges.forEach(range => { if (value >= range) selected = range; });
+      let selectedIndex = 0;
+      ranges.forEach((range, index) => { if (value >= range) selectedIndex = index; });
+      const selected = ranges[selectedIndex] || 0;
       const key = `${party}_${selected}`;
-      return legendOverrides[key] || (selected === ranges[ranges.length - 1] ? partyColors[party] : getColorShade(partyColors[party], selected, 0, 100));
+      const shade = d3.interpolateRgb('#ffffff', partyColors[party])(selectedIndex / Math.max(1, ranges.length - 1));
+      return legendOverrides[key] || shade;
+    }
+
+    function getFeatureFill(feature) {
+      const name = getFeatureName(feature).toLowerCase();
+      const row = parsedData.find(d => d.region.toLowerCase() === name);
+      if (!row) return '#bae6fd';
+      const total = row.NDP + row.IDP + row.NCP;
+      const percentMode = document.getElementById('calc-mode').value === 'percent';
+      const values = { NDP: percentMode ? row.NDP : (total ? row.NDP / total * 100 : 0), IDP: percentMode ? row.IDP : (total ? row.IDP / total * 100 : 0), NCP: percentMode ? row.NCP : (total ? row.NCP / total * 100 : 0) };
+      const party = Object.keys(values).sort((a,b) => values[b] - values[a])[0];
+      return getMapColor(party, values[party]);
     }
 
     function populateMagnifierRegions() {
@@ -658,7 +674,7 @@
         partyValues.forEach((rangeValue, rIdx) => {
           const range = rangeValue + '%';
           const key = `${party.name}_${rangeValue}`;
-          const shade = legendOverrides[key] || getColorShade(party.color, rangeValue, 0, 100);
+          const shade = legendOverrides[key] || d3.interpolateRgb('#ffffff', party.color)(rIdx / Math.max(1, partyValues.length - 1));
           const xPos = 65 + (rIdx * boxWidth);
 
           legendGroup.append("rect")
@@ -682,6 +698,37 @@
       return candidates[index % candidates.length] || [840, 80];
     }
 
+    function startMagnifierSelection() {
+      if (!geojsonData) { showNotification('Upload GeoJSON', 'Upload a GeoJSON map first.'); return; }
+      magnifierSelecting = true;
+      document.getElementById('select-magnifier-btn').style.display = 'block';
+      renderMap();
+    }
+
+    function confirmMagnifierSelection() {
+      if (!magnifierSelectionBox) return;
+      const cx = magnifierSelectionBox.x + magnifierSelectionBox.size / 2;
+      const cy = magnifierSelectionBox.y + magnifierSelectionBox.size / 2;
+      const candidates = [...document.querySelectorAll('#map-svg path.region, #map-svg path.region-greyed')];
+      let best = null, bestDistance = Infinity;
+      candidates.forEach(pathNode => {
+        const d = pathNode.__data__;
+        if (!d) return;
+        const point = d3.geoPath().projection(magnifierSelectionBox.projection).centroid(d);
+        const distance = Math.hypot(point[0] - cx, point[1] - cy);
+        if (Number.isFinite(distance) && distance < bestDistance) { best = d; bestDistance = distance; }
+      });
+      if (best) {
+        const name = getFeatureName(best);
+        if (name && !magnifiers.some(m => m.region.toLowerCase() === name.toLowerCase())) magnifiers.push({ region: name });
+      }
+      magnifierSelecting = false;
+      magnifierSelectionBox = null;
+      document.getElementById('select-magnifier-btn').style.display = 'none';
+      renderMap();
+      saveProjectState();
+    }
+
     function renderMagnifiers(svg, pathGenerator, features) {
       const layer = svg.append('g').attr('class', 'magnifier-layer');
       magnifiers.forEach((mag, index) => {
@@ -698,16 +745,24 @@
         try {
           const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: [feature] });
           const insetPath = d3.geoPath().projection(insetProjection);
-          box.append('path').datum(feature).attr('d', insetPath).attr('fill', '#bae6fd').attr('stroke', '#0f172a').attr('stroke-width', 1.5);
+          box.append('path').datum(feature).attr('d', insetPath).attr('fill', getFeatureFill(feature)).attr('stroke', '#0f172a').attr('stroke-width', 1.5);
           const centroid = pathGenerator.centroid(feature);
           if (centroid.every(Number.isFinite)) layer.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
         } catch (err) {
           box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('Geometry error');
         }
       });
+      if (magnifierSelecting) {
+        const size = 120;
+        const x = 440, y = 330;
+        const selection = svg.append('g').attr('class', 'magnifier-selection');
+        selection.append('rect').attr('x', x).attr('y', y).attr('width', size).attr('height', size).attr('fill', 'rgba(255,255,255,0.15)').attr('stroke', '#dc2626').attr('stroke-width', 3).attr('stroke-dasharray', '8,5').style('cursor', 'move')
+          .call(d3.drag().on('drag', function(event) { d3.select(this).attr('x', event.x - size / 2).attr('y', event.y - size / 2); magnifierSelectionBox.x = event.x - size / 2; magnifierSelectionBox.y = event.y - size / 2; }));
+        magnifierSelectionBox = { x, y, size, projection: pathGenerator.projection() };
+      }
     }
 
-    function clearMagnifiers() { magnifiers = []; renderMap(); }
+    function clearMagnifiers() { magnifiers = []; magnifierSelecting = false; magnifierSelectionBox = null; document.getElementById('select-magnifier-btn').style.display = 'none'; renderMap(); saveProjectState(); }
 
     // --- MODERN POPUP MODAL CONTROL ---
     function openMagnifierModal() {
