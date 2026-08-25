@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-       <meta charset="UTF-8">
+        <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ORLEANALYSIS - Election Mapping Suite</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -560,6 +560,8 @@
     }
 
     // --- MAP RENDERER ---
+    let featuresForCurrentMap = [];
+
     function renderMap() {
       const svg = d3.select("#map-svg");
       svg.selectAll("*").remove();
@@ -598,6 +600,7 @@
       }
 
       if (!features.length) return;
+      featuresForCurrentMap = features;
       const fitFeatures = features.filter(isRenderableFeature);
       if (!fitFeatures.length) return;
       const projection = d3.geoMercator().fitExtent([[80, 100], [920, 780]], { type: "FeatureCollection", features: fitFeatures });
@@ -707,21 +710,14 @@
 
     function confirmMagnifierSelection() {
       if (!magnifierSelectionBox) return;
-      const cx = magnifierSelectionBox.x + magnifierSelectionBox.size / 2;
-      const cy = magnifierSelectionBox.y + magnifierSelectionBox.size / 2;
-      const candidates = [...document.querySelectorAll('#map-svg path.region, #map-svg path.region-greyed')];
-      let best = null, bestDistance = Infinity;
-      candidates.forEach(pathNode => {
-        const d = pathNode.__data__;
-        if (!d) return;
-        const point = d3.geoPath().projection(magnifierSelectionBox.projection).centroid(d);
-        const distance = Math.hypot(point[0] - cx, point[1] - cy);
-        if (Number.isFinite(distance) && distance < bestDistance) { best = d; bestDistance = distance; }
+      const bx1 = magnifierSelectionBox.x, by1 = magnifierSelectionBox.y;
+      const bx2 = bx1 + magnifierSelectionBox.size, by2 = by1 + magnifierSelectionBox.size;
+      const selected = featuresForCurrentMap.filter(feature => {
+        const bounds = d3.geoPath().projection(magnifierSelectionBox.projection).bounds(feature);
+        return bounds[1][0] >= bx1 && bounds[0][0] <= bx2 && bounds[1][1] >= by1 && bounds[0][1] <= by2;
       });
-      if (best) {
-        const name = getFeatureName(best);
-        if (name && !magnifiers.some(m => m.region.toLowerCase() === name.toLowerCase())) magnifiers.push({ region: name });
-      }
+      const regions = selected.map(getFeatureName).filter(Boolean);
+      if (regions.length) magnifiers.push({ regions });
       magnifierSelecting = false;
       magnifierSelectionBox = null;
       document.getElementById('select-magnifier-btn').style.display = 'none';
@@ -735,22 +731,18 @@
         const boxSize = 160;
         const position = findMagnifierPosition(pathGenerator, features, index);
         const x = position[0], y = position[1];
-        const feature = features.find(f => getFeatureName(f).toLowerCase() === String(mag.region).toLowerCase());
+        const names = mag.regions || (mag.region ? [mag.region] : []);
+        const selected = features.filter(f => names.some(name => getFeatureName(f).toLowerCase() === String(name).toLowerCase()) && isRenderableFeature(f));
         const box = layer.append('g').attr('class', 'magnifier-box');
         box.append('rect').attr('x', x).attr('y', y).attr('width', boxSize).attr('height', boxSize).attr('fill', '#ffffff').attr('stroke', '#000000').attr('stroke-width', 2);
-        if (!feature || !isRenderableFeature(feature)) {
-          box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('No geometry');
-          return;
-        }
+        if (!selected.length) { box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('No selected counties'); return; }
         try {
-          const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: [feature] });
+          const insetProjection = d3.geoMercator().fitExtent([[x + 10, y + 10], [x + boxSize - 10, y + boxSize - 10]], { type: 'FeatureCollection', features: selected });
           const insetPath = d3.geoPath().projection(insetProjection);
-          box.append('path').datum(feature).attr('d', insetPath).attr('fill', getFeatureFill(feature)).attr('stroke', '#0f172a').attr('stroke-width', 1.5);
-          const centroid = pathGenerator.centroid(feature);
-          if (centroid.every(Number.isFinite)) layer.append('line').attr('x1', centroid[0]).attr('y1', centroid[1]).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
-        } catch (err) {
-          box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('Geometry error');
-        }
+          selected.forEach(feature => box.append('path').datum(feature).attr('d', insetPath).attr('fill', getFeatureFill(feature)).attr('stroke', '#0f172a').attr('stroke-width', 1));
+          const bounds = pathGenerator.bounds({ type: 'FeatureCollection', features: selected });
+          if (bounds[0].every(Number.isFinite)) layer.append('line').attr('x1', (bounds[0][0] + bounds[1][0]) / 2).attr('y1', (bounds[0][1] + bounds[1][1]) / 2).attr('x2', x).attr('y2', y + boxSize / 2).attr('class', 'magnify-line');
+        } catch (err) { box.append('text').attr('x', x + boxSize / 2).attr('y', y + boxSize / 2).attr('text-anchor', 'middle').attr('fill', '#64748b').text('Geometry error'); }
       });
       if (magnifierSelecting) {
         const size = 120;
